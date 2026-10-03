@@ -102,7 +102,20 @@ export const FindObjectScreen: React.FC<FindObjectScreenProps> = ({ onBack, onSt
               <Text style={styles.listeningText}>🎤 Listening... Say the object name</Text>
               <View style={styles.waveBar}>
                 {[...Array(5)].map((_, i) => (
-                  <View key={i} style={[styles.wavePip, { animationDelay: `${i * 0.1}s` }]} />
+                  // NOTE: CSS-style props like `animationDelay` do not exist in
+                  // React Native's ViewStyle - they type-error and do nothing at
+                  // runtime. Height/opacity are valid RN styles and give the same
+                  // staggered "wave" look without pulling in Animated.
+                  <View
+                    key={i}
+                    style={[
+                      styles.wavePip,
+                      {
+                        height: 6 + ((i + 1) % 3) * 4,
+                        opacity: 0.45 + ((i + 1) % 3) * 0.25,
+                      },
+                    ]}
+                  />
                 ))}
               </View>
             </View>

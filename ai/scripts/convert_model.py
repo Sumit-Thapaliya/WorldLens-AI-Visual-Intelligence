@@ -102,13 +102,41 @@ def convert_to_onnx(model, input_size: int, output_path: str, model_name: str):
     return onnx_path
 
 
+# The 91-entry category list the pretrained torchvision detection weights actually emit
+# indices into. It contains 11 gaps: 5 named-but-unannotated classes (street sign, hat,
+# shoe, eye glasses, plate) and 5 trailing N/A slots. Indices matter - class 62 is "chair"
+# here, NOT the 62nd of the 80 real classes, so a plain labels[classId - 1] lookup
+# mislabels everything after "fire hydrant".
+COCO_91_CATEGORIES = [
+    "__background__", "person", "bicycle", "car", "motorcycle", "airplane", "bus",
+    "train", "truck", "boat", "traffic light", "fire hydrant", "street sign",
+    "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep",
+    "cow", "elephant", "bear", "zebra", "giraffe", "hat", "backpack", "umbrella",
+    "shoe", "eye glasses", "handbag", "tie", "suitcase", "frisbee", "skis",
+    "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
+    "skateboard", "surfboard", "tennis racket", "bottle", "plate", "wine glass",
+    "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich",
+    "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
+    "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
+    "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster",
+    "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+    "hair drier", "toothbrush", "N/A", "N/A", "N/A", "N/A", "N/A",
+]
+
+
 def save_labels(output_path: str):
-    """Save COCO class labels as a text file for mobile use."""
+    """Save COCO class labels as a text file for mobile use.
+
+    Writes the full 91-entry list (including "__background__" at index 0) so that
+    `labels[class_id]` matches the model's output indices exactly. InferenceModule
+    detects a 91-line file and uses it directly; for a legacy 80-line file it maps
+    indices through the COCO gap table instead.
+    """
     labels_path = os.path.join(output_path, "labels.txt")
     with open(labels_path, "w") as f:
-        for label in COCO_CLASSES[1:]:  # Skip background
+        for label in COCO_91_CATEGORIES:
             f.write(f"{label}\n")
-    print(f"Labels saved to: {labels_path}")
+    print(f"Labels saved to: {labels_path} ({len(COCO_91_CATEGORIES)} entries)")
     return labels_path
 
 
@@ -146,6 +174,20 @@ def main():
 
     onnx_path = convert_to_onnx(model, input_size, str(output_path), args.model)
     save_labels(str(output_path))
+
+    # Ship a copy under the name the app + docs refer to, so the file that lands in
+    # mobile/assets/models/object_detector/ is unambiguously "the model to use".
+    # Prefer the quantized build when it exists (smaller + faster on mobile).
+    quantized = Path(str(output_path)) / f"{args.model}_int8.onnx"
+    preferred = quantized if quantized.exists() else Path(onnx_path)
+    canonical = Path(str(output_path)) / "model.quant.onnx"
+    try:
+        import shutil
+
+        shutil.copyfile(preferred, canonical)
+        print(f"Canonical model written: {canonical}  (from {preferred.name})")
+    except Exception as e:  # noqa: BLE001 - conversion must not fail on this step
+        print(f"Could not create {canonical}: {e}")
 
     print("\n=== Conversion Complete ===")
     print(f"Model: {onnx_path}")

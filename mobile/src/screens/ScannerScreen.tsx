@@ -31,7 +31,7 @@ interface Props {
   initialFindLabel?: string | null;
   onBack: () => void;
   onOpenFind: () => void;
-  onResult: (obj: { label: string; confidence: number; position: string; distance: string }) => void;
+  onResult: (obj: { label: string; confidence: string; position: string; distance: string }) => void;
 }
 
 const { width: W, height: H } = Dimensions.get('window');

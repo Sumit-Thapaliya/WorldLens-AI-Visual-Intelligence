@@ -97,7 +97,9 @@ export const AppNavigator: React.FC = () => {
           result={
             state.result ?? {
               label: 'Object',
-              confidence: 0,
+              // `confidence` is a display string everywhere (ResultsScreen renders it
+              // directly, ScannerScreen sends "87%"). A bare 0 here was a type error.
+              confidence: '—',
               position: 'center',
               distance: '~2 m',
             }

@@ -223,10 +223,44 @@ export function createNativeDetector(
 }
 
 /**
- * Create the best available detector (native first, mock fallback).
+ * Master switch for the native detector.
+ *  - true  (default): use the Kotlin InferenceModule whenever it has actually loaded an
+ *    .onnx model from assets; otherwise fall back to the mock detector automatically.
+ *  - false: always use the mock detector (handy while iterating on UI).
+ */
+export const NATIVE_MODEL_AVAILABLE = true;
+
+/**
+ * Synchronous probe: "native module present AND an .onnx model loaded?".
+ * `isModelLoaded()` is declared with isBlockingSynchronousMethod in InferenceModule.kt, so it
+ * returns a value directly without awaiting. Any error (e.g. an older APK that predates the
+ * method) yields false, so callers safely fall back to the mock detector.
+ */
+export function nativeModelLoaded(): boolean {
+  try {
+    const { NativeModules } = require('react-native');
+    const mod = NativeModules?.InferenceModule;
+    if (!mod || typeof mod.isModelLoaded !== 'function') return false;
+    return mod.isModelLoaded() === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create the best available detector.
+ * Native (real ONNX inference) when a model is shipped, mock otherwise - so the UI always
+ * has something to render instead of an empty screen.
  */
 export function createDetector(config: DetectorConfig = DEFAULT_DETECTOR_CONFIG): DetectorHandle {
   const native = createNativeDetector(config);
-  if (native) return native;
+  if (native && NATIVE_MODEL_AVAILABLE && nativeModelLoaded()) {
+    console.log('[WorldLens] detector: native ONNX inference');
+    return native;
+  }
+
+  console.log(
+    '[WorldLens] detector: mock (no .onnx model in assets yet - see SETUP_NATIVE.md)'
+  );
   return createMockDetector(config);
 }

@@ -119,20 +119,72 @@ The first build takes 2-5 minutes. After that, you get hot reload on JS changes.
 - ONNX Runtime Mobile + CameraX dependencies already in `app/build.gradle`
 - Assets folder `assets/models/object_detector/labels.txt` with all 80 COCO labels
 
-## The one remaining piece for real detections
+## Getting real detections
 
-The model file itself (`model.quant.onnx`) isn't in the repo (it's ~3-5 MB
-for SSDLite-MBV3 INT8). Once you run `python ai/scripts/convert_model.py`
-to download and quantize the pretrained COCO model, place the resulting
-`model.quant.onnx` into:
+The native inference path is **implemented** (`InferenceModule.kt` runs ONNX Runtime Mobile
+with thresholding + per-class NMS). The only missing piece is the model file itself - it is
+not in the repo because it is ~3-5 MB.
+
+### 1. Generate the model
+
+```bat
+cd worldlens
+python ai/scripts/convert_model.py
+```
+
+This downloads the pretrained SSDLite-MobileNetV3 COCO model, exports it to ONNX, quantizes
+it to int8, and writes **all** of these into `ai/../mobile/assets/models/object_detector/`:
+
+| File | Purpose |
+|---|---|
+| `model.quant.onnx` | canonical name the app looks for first (a copy of the int8 build) |
+| `ssdlite_int8.onnx` | the quantized model |
+| `ssdlite.onnx` | the full-precision model |
+| `labels.txt` | 91-entry category list, indices matching the model output |
+
+### 2. Which filename the app accepts
+
+`InferenceModule.kt` probes these in order and loads the first one present:
 
 ```
-mobile/assets/models/object_detector/model.quant.onnx
+model.quant.onnx, ssdlite_int8.onnx, ssdlite.onnx, ssdlite_mobilenet_v3.onnx, yolov5n.onnx
 ```
 
-The `app/build.gradle` already bundles that folder into the APK via
-`assets.srcDirs("../../assets")`. Until then, the mock frame loop drives
-the UI so you can iterate on design/animations without a physical model.
+So you can simply copy whichever `.onnx` you produced into
+`mobile/assets/models/object_detector/` - no code change needed.
+
+### 3. Rebuild - it self-configures
+
+```bat
+cd mobile
+powershell -ExecutionPolicy Bypass -File .\apply-fixes.ps1 -Build
+```
+
+At runtime the module reads the input size and layout (NCHW vs NHWC) **from the model**, so a
+300x300 or 320x320 export both work. Check the logcat tag `WorldLens-Inference`:
+
+```
+I WorldLens-Inference: Model ready: model.quant.onnx (3124 KB)
+I WorldLens-Inference: Input 'input' shape=[1, 3, 320, 320] -> using 320x320 NCHW
+```
+
+### 4. If the model is missing, nothing breaks
+
+`isModelLoaded()` returns false, the JS layer logs
+`[WorldLens] detector: mock (no .onnx model in assets yet)` and the simulated detections keep
+the UI usable. Add the model and it switches to real inference automatically - there is no
+flag to flip.
+
+### Notes on correctness
+
+- Input is scaled to **0..1 only**. The exported torchvision graph applies its own ImageNet
+  mean/std normalization internally, so normalizing here as well would badly degrade results.
+- Boxes come back in **input pixels** (0..320), not 0..1; the post-processor detects the units
+  and rescales, and clamps to the frame.
+- Labels are mapped through COCO's 91-entry index space (class 62 is `chair`), not a naive
+  `labels[id - 1]` lookup.
+- The frame is stretched to the model's square input rather than centre-cropped so the returned
+  boxes stay valid across the whole preview.
 
 ## Troubleshooting
 

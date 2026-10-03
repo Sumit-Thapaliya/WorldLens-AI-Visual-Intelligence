@@ -70,6 +70,7 @@ def convert_to_onnx(model, input_size: int, output_path: str, model_name: str):
         model,
         dummy_input,
         onnx_path,
+        export_params=True,
         opset_version=12,
         input_names=["input"],
         output_names=["boxes", "scores", "labels"],
@@ -80,6 +81,7 @@ def convert_to_onnx(model, input_size: int, output_path: str, model_name: str):
             "labels": {0: "batch"},
         },
         do_constant_folding=True,
+        dynamo=False,
     )
 
     print(f"ONNX model saved to: {onnx_path}")

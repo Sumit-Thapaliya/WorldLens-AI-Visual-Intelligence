@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Uses the same IoU + Kalman-filter-inspired logic as the JS version but runs
  * on a native HandlerThread.
  */
-class TrackingModule(private val reactContext: ReactContext) :
+class TrackingModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     private data class NativeTrack(

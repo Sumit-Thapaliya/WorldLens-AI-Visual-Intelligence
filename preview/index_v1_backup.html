@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>WorldLens — AI Reality Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=SF+Pro+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-0: #05060A;
+    --bg-1: #0A0C14;
+    --bg-2: #0F1320;
+    --glass: rgba(255,255,255,0.06);
+    --glass-strong: rgba(255,255,255,0.10);
+    --stroke: rgba(255,255,255,0.08);
+    --stroke-strong: rgba(255,255,255,0.14);
+    --text: #FFFFFF;
+    --text-dim: rgba(255,255,255,0.55);
+    --text-muted: rgba(255,255,255,0.35);
+    --accent: #6366F1;
+    --accent-2: #8B5CF6;
+    --accent-glow: rgba(99,102,241,0.55);
+    --success: #10B981;
+    --success-glow: rgba(16,185,129,0.55);
+    --warn: #F59E0B;
+    --danger: #EF4444;
+    --blue: #3B82F6;
+    --pink: #EC4899;
+    --cyan: #06B6D4;
+    --radius-sm: 10px;
+    --radius: 16px;
+    --radius-lg: 22px;
+    --radius-xl: 28px;
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+    --shadow: 0 8px 32px rgba(0,0,0,0.5);
+    --shadow-glow: 0 0 40px rgba(99,102,241,0.25);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(ellipse 120% 80% at 20% 0%, #1a1545 0%, transparent 55%),
+      radial-gradient(ellipse 100% 60% at 80% 100%, #1e1b4b 0%, transparent 50%),
+      radial-gradient(ellipse 80% 50% at 50% 50%, #0f0c29 0%, #05060a 70%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    padding: 20px;
+    user-select: none;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+    opacity: 0.04;
+    pointer-events: none; z-index: 0;
+    mix-blend-mode: overlay;
+  }
+
+  /* ============ DEVICE FRAME ============ */
+  .stage { perspective: 2000px; position: relative; z-index: 1; }
+  .phone {
+    width: 400px; height: 860px;
+    background: linear-gradient(145deg, #1a1d2e 0%, #0c0e18 100%);
+    border-radius: 54px;
+    position: relative;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.06) inset,
+      0 0 0 2px #000,
+      0 30px 80px rgba(0,0,0,0.7),
+      0 10px 40px rgba(99,102,241,0.15),
+      0 0 120px rgba(139,92,246,0.08);
+    overflow: hidden;
+    transform-style: preserve-3d;
+    animation: deviceFloat 6s ease-in-out infinite;
+  }
+  @keyframes deviceFloat {
+    0%,100% { transform: rotateX(2deg) rotateY(-2deg) translateY(0); }
+    50% { transform: rotateX(-1deg) rotateY(2deg) translateY(-8px); }
+  }
+  .phone::before {
+    content: '';
+    position: absolute; inset: 2px;
+    border-radius: 52px;
+    background: linear-gradient(145deg, rgba(255,255,255,0.08), transparent 30%);
+    pointer-events: none; z-index: 1000;
+  }
+  .side-buttons { position: absolute; left: -3px; top: 160px; display:flex; flex-direction:column; gap:10px; z-index:10; }
+  .side-btn { width:3px; height:32px; background:linear-gradient(90deg,#0a0c14,#1a1d2e); border-radius:2px; }
+  .side-btn.power { left:auto; right:-3px; top:200px; position:absolute; height:60px; }
+  .notch {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    width: 126px; height: 34px; background: #000;
+    border-radius: 20px; z-index: 500;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .notch-cam { width: 10px; height: 10px; border-radius: 50%; background: radial-gradient(circle, #1e3a8a 30%, #0c1425 60%); border: 1px solid rgba(255,255,255,0.1); }
+  .notch-dot { width: 6px; height: 6px; border-radius: 50%; background: #1a1d2e; }
+  .screen { position: absolute; inset: 0; border-radius: 54px; overflow: hidden; background: var(--bg-0); }
+
+  /* ============ SCREEN BASE ============ */
+  .screen-view {
+    position: absolute; inset: 0;
+    opacity: 0;
+    transform: scale(1.02) translateY(10px);
+    transition: opacity 0.5s cubic-bezier(0.22,1,0.36,1), transform 0.5s cubic-bezier(0.22,1,0.36,1);
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .screen-view.active {
+    opacity: 1; transform: scale(1) translateY(0); pointer-events: auto;
+  }
+  .screen-view.exit { transform: scale(0.98) translateY(-6px); }
+
+  /* Shared mesh bg */
+  .mesh-bg {
+    position: absolute; inset: 0; overflow: hidden;
+    background: linear-gradient(180deg, #05060a 0%, #0a0c18 50%, #0f1320 100%);
+  }
+  .orb {
+    position: absolute; border-radius: 50%; filter: blur(60px); opacity: 0.5;
+    animation: orbFloat 12s ease-in-out infinite;
+  }
+  .orb.o1 { width:300px; height:300px; background:#6366F1; top:-80px; left:-80px; opacity:0.25; }
+  .orb.o2 { width:240px; height:240px; background:#8B5CF6; bottom:-60px; right:-60px; animation-delay:-4s; opacity:0.22; }
+  .orb.o3 { width:180px; height:180px; background:#EC4899; top:40%; right:-40px; animation-delay:-8s; opacity:0.15; }
+  @keyframes orbFloat {
+    0%,100% { transform: translate(0,0) scale(1); }
+    33% { transform: translate(20px,-30px) scale(1.08); }
+    66% { transform: translate(-15px,20px) scale(0.95); }
+  }
+
+  /* ============ BUTTONS ============ */
+  .btn {
+    position: relative; border: none; cursor: pointer;
+    font-family: inherit; font-weight: 600; font-size: 16px;
+    border-radius: var(--radius);
+    padding: 17px 22px;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s;
+    overflow: hidden;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn-primary {
+    background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #EC4899 100%);
+    color: #fff; font-weight: 700;
+    box-shadow: 0 8px 24px rgba(99,102,241,0.4), 0 0 0 1px rgba(255,255,255,0.15) inset;
+  }
+  .btn-primary:hover { box-shadow: 0 12px 32px rgba(99,102,241,0.55), 0 0 0 1px rgba(255,255,255,0.2) inset; transform: translateY(-1px); }
+  .btn-primary::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.25), transparent 50%);
+    pointer-events: none;
+  }
+  .btn-ghost {
+    background: var(--glass); color: var(--text); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--stroke-strong);
+  }
+  .btn-ghost:hover { background: var(--glass-strong); border-color: rgba(255,255,255,0.2); }
+  .btn-icon {
+    width: 44px; height: 44px; padding: 0; border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--stroke);
+    color: #fff; font-size: 20px;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .btn-icon:hover { background: rgba(255,255,255,0.14); transform: scale(1.08); }
+  .btn-icon:active { transform: scale(0.92); }
+
+  /* Shine effect */
+  .shine { position: relative; overflow: hidden; }
+  .shine::before {
+    content:''; position:absolute; top:0; left:-100%; width:100%; height:100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+    transition: left 0.7s;
+  }
+  .shine:hover::before { left: 100%; }
+
+  /* ============ HOME SCREEN ============ */
+  #screen-home .content {
+    height: 100%; padding: 60px 28px 30px;
+    display: flex; flex-direction: column;
+    position: relative; z-index: 2;
+  }
+  .logo-wrap { display:flex; flex-direction:column; align-items:center; margin-top: 20px; margin-bottom: 28px; }
+  .logo-outer {
+    width: 96px; height: 96px; border-radius: 50%;
+    background: conic-gradient(from 180deg, #6366F1, #8B5CF6, #EC4899, #06B6D4, #6366F1);
+    padding: 2px;
+    animation: logoSpin 8s linear infinite;
+    box-shadow: 0 0 60px rgba(99,102,241,0.5), 0 0 100px rgba(139,92,246,0.3);
+    margin-bottom: 20px;
+  }
+  @keyframes logoSpin { to { transform: rotate(360deg); } }
+  .logo-inner {
+    width: 100%; height: 100%; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #1a1f3a, #0a0c18);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 42px;
+    animation: logoSpin 8s linear infinite reverse;
+  }
+  .logo-ring {
+    position: absolute; inset: -12px;
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 50%;
+    animation: ringPulse 3s ease-out infinite;
+  }
+  @keyframes ringPulse {
+    0% { transform: scale(1); opacity: 0.8; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+  .brand { position: relative; }
+  h1.brand-title {
+    font-size: 44px; font-weight: 800; letter-spacing: -1.5px;
+    background: linear-gradient(135deg, #fff 0%, #c4b5fd 50%, #f9a8d4 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-align: center;
+  }
+  .brand-sub {
+    text-align: center; font-size: 12px; font-weight: 600; letter-spacing: 4px;
+    background: linear-gradient(90deg, #6366F1, #8B5CF6, #EC4899);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin-top: 6px; text-transform: uppercase;
+  }
+  .tagline {
+    text-align: center; color: var(--text-dim); font-size: 14px; line-height: 1.5;
+    margin-top: 16px; max-width: 300px; align-self: center;
+    font-weight: 400;
+  }
+  .features-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 24px 0;
+  }
+  .feat-card {
+    background: var(--glass); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--stroke); border-radius: var(--radius);
+    padding: 14px 12px; display: flex; flex-direction: column; gap: 6px;
+    transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    position: relative; overflow: hidden;
+  }
+  .feat-card:hover { transform: translateY(-3px); border-color: var(--stroke-strong); background: var(--glass-strong); }
+  .feat-card:active { transform: translateY(-1px) scale(0.98); }
+  .feat-ic { font-size: 22px; filter: drop-shadow(0 0 8px rgba(99,102,241,0.4)); }
+  .feat-tx { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.85); line-height: 1.3; }
+  .home-actions { display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25);
+    padding: 7px 14px; border-radius: 100px;
+    font-size: 11px; font-weight: 600; color: var(--success);
+    align-self: center; margin-top: 16px;
+  }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); position: relative; }
+  .live-dot::after { content:''; position:absolute; inset:-3px; border-radius:50%; background: var(--success); opacity:0.4; animation: ping 1.8s ease-out infinite; }
+  @keyframes ping { 0%{transform:scale(1);opacity:0.6;} 100%{transform:scale(2.2);opacity:0;} }
+
+  /* ============ SCANNER ============ */
+  #screen-scanner { background: #000; }
+  .viewfinder {
+    position: absolute; top: 0; left: 0; right: 0; height: 58%;
+    overflow: hidden; background: #0a0c14;
+  }
+  .camera-feed {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 50% 40%, rgba(30,40,80,0.4) 0%, rgba(10,12,20,0.9) 70%),
+      linear-gradient(180deg, #0f1525 0%, #1a1f3a 40%, #0a0c14 100%);
+    display:flex; align-items:center; justify-content:center;
+  }
+  /* Simulated camera noise */
+  .camera-noise {
+    position: absolute; inset: 0; opacity: 0.06; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  /* Viewfinder frame corners */
+  .vf-corners { position:absolute; inset:20px; pointer-events:none; }
+  .vf-corner { position:absolute; width:28px; height:28px; border:2px solid rgba(99,102,241,0.5); border-radius: 4px; }
+  .vf-corner.tl { top:0; left:0; border-right:none; border-bottom:none; border-top-left-radius: 8px; }
+  .vf-corner.tr { top:0; right:0; border-left:none; border-bottom:none; border-top-right-radius: 8px; }
+  .vf-corner.bl { bottom:0; left:0; border-right:none; border-top:none; border-bottom-left-radius: 8px; }
+  .vf-corner.br { bottom:0; right:0; border-left:none; border-top:none; border-bottom-right-radius: 8px; }
+  /* Scan line */
+  .scan-line {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    box-shadow: 0 0 20px var(--accent-glow), 0 0 40px var(--accent-glow);
+    animation: scanMove 2.8s ease-in-out infinite;
+    pointer-events: none; z-index: 5;
+  }
+  @keyframes scanMove {
+    0% { top: 8%; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { top: 92%; opacity: 0; }
+  }
+  .grid-overlay {
+    position:absolute; inset:0; pointer-events:none; opacity:0.08;
+    background-image:
+      linear-gradient(90deg, #fff 1px, transparent 1px),
+      linear-gradient(0deg, #fff 1px, transparent 1px);
+    background-size: 33.33% 33.33%;
+  }
+  .reticle {
+    position: absolute; left:50%; top:50%; transform: translate(-50%,-50%);
+    width: 72px; height: 72px;
+  }
+  .reticle-ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 1px solid rgba(99,102,241,0.3);
+    animation: retPulse 2.5s ease-out infinite;
+  }
+  .reticle-ring.r2 { animation-delay: 0.8s; }
+  .reticle-ring.r3 { animation-delay: 1.6s; }
+  @keyframes retPulse { 0%{transform:scale(0.8);opacity:0.8;} 100%{transform:scale(1.6);opacity:0;} }
+  .reticle-dot {
+    position: absolute; left:50%; top:50%; width:6px; height:6px;
+    background: var(--accent); border-radius:50%; transform:translate(-50%,-50%);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+  .cam-center-text { position: absolute; top: 60%; color: rgba(255,255,255,0.4); font-size: 11px; font-weight: 500; letter-spacing: 3px; text-transform: uppercase; }
+
+  /* Detection boxes */
+  #boxesLayer { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+  .det-box {
+    position: absolute; border-radius: 8px;
+    background: transparent;
+    transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .det-box .box-stroke {
+    position: absolute; inset: 0; border-radius: 8px;
+    border: 2px solid var(--success);
+    box-shadow: 0 0 12px rgba(16,185,129,0.35), inset 0 0 12px rgba(16,185,129,0.1);
+  }
+  .det-box.medium .box-stroke { border-color: var(--warn); box-shadow: 0 0 12px rgba(245,158,11,0.35), inset 0 0 12px rgba(245,158,11,0.1); }
+  .det-box.low .box-stroke { border-color: var(--danger); box-shadow: 0 0 12px rgba(239,68,68,0.3), inset 0 0 12px rgba(239,68,68,0.08); }
+  .det-box.highlight .box-stroke {
+    border-color: var(--accent); border-width: 3px;
+    box-shadow: 0 0 24px var(--accent-glow), inset 0 0 24px rgba(99,102,241,0.15);
+    animation: targetPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes targetPulse {
+    0%,100% { box-shadow: 0 0 24px var(--accent-glow), inset 0 0 24px rgba(99,102,241,0.15); }
+    50% { box-shadow: 0 0 40px var(--accent-glow), inset 0 0 30px rgba(99,102,241,0.25); }
+  }
+  /* Corner markers for AR feel */
+  .corner { position:absolute; width:14px; height:14px; border:2px solid currentColor; }
+  .det-box .corner.tl { top:-2px; left:-2px; border-right:none; border-bottom:none; border-top-left-radius: 6px; color: var(--success); }
+  .det-box .corner.tr { top:-2px; right:-2px; border-left:none; border-bottom:none; border-top-right-radius: 6px; color: var(--success); }
+  .det-box .corner.bl { bottom:-2px; left:-2px; border-right:none; border-top:none; border-bottom-left-radius: 6px; color: var(--success); }
+  .det-box .corner.br { bottom:-2px; right:-2px; border-left:none; border-top:none; border-bottom-right-radius: 6px; color: var(--success); }
+  .det-box.medium .corner { color: var(--warn); }
+  .det-box.low .corner { color: var(--danger); }
+  .det-box.highlight .corner { color: var(--accent); }
+
+  .det-label {
+    position: absolute; top: -34px; left: -3px;
+    background: linear-gradient(135deg, #10B981, #059669);
+    color: #fff; font-size: 11px; font-weight: 700;
+    padding: 5px 10px;
+    border-radius: 8px;
+    display: flex; gap: 8px; white-space: nowrap;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4), 0 0 12px rgba(16,185,129,0.4);
+    backdrop-filter: blur(10px);
+    align-items: center;
+  }
+  .det-label::after {
+    content: ''; position: absolute; bottom: -4px; left: 14px;
+    width: 8px; height: 8px; background: #059669; transform: rotate(45deg);
+  }
+  .det-box.medium .det-label { background: linear-gradient(135deg, #F59E0B, #D97706); box-shadow: 0 4px 12px rgba(0,0,0,0.4), 0 0 12px rgba(245,158,11,0.4); }
+  .det-box.medium .det-label::after { background: #D97706; }
+  .det-box.low .det-label { background: linear-gradient(135deg, #EF4444, #DC2626); box-shadow: 0 4px 12px rgba(0,0,0,0.4), 0 0 12px rgba(239,68,68,0.35); }
+  .det-box.low .det-label::after { background: #DC2626; }
+  .det-box.highlight .det-label { background: linear-gradient(135deg, #6366F1, #8B5CF6); box-shadow: 0 4px 16px rgba(99,102,241,0.5), 0 0 20px var(--accent-glow); padding: 6px 12px; font-size:12px; }
+  .det-box.highlight .det-label::after { background: #8B5CF6; }
+  .conf-tag { color: rgba(255,255,255,0.9); font-weight: 700; font-size: 10px; padding-left: 8px; border-left: 1px solid rgba(255,255,255,0.3); }
+  .track-tag { color: rgba(255,255,255,0.7); font-weight: 600; font-size: 9px; padding:1px 5px; background:rgba(0,0,0,0.3); border-radius:4px; }
+
+  /* HUD panels (glassmorphic) */
+  .hud-panel {
+    background: rgba(10,12,20,0.6); backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .top-bar { position: absolute; top: 52px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 18px; z-index: 20; }
+  .scene-hud { position: absolute; top: 106px; left: 16px; padding: 10px 14px; z-index: 15; min-width: 110px; }
+  .hud-label { color: rgba(255,255,255,0.45); font-size: 9px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+  .hud-value { color: #fff; font-size: 16px; font-weight: 700; margin-top: 2px; display:flex; align-items:center; gap:6px; }
+  .hud-value .dot { width:6px; height:6px; border-radius:50%; background: var(--success); animation: blink 2s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: 0.4; } }
+  .stats-hud { position: absolute; top: 106px; right: 16px; padding: 10px 12px; z-index: 15; font-family: 'SF Mono', 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.6; min-width: 96px; }
+  .stat-row { display: flex; justify-content: space-between; color: rgba(255,255,255,0.65); }
+  .stat-row span:last-child { color: var(--success); font-weight: 600; }
+
+  .find-banner {
+    position: absolute; top: 170px; left: 50%; transform: translateX(-50%) translateY(-10px);
+    background: rgba(99,102,241,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    padding: 10px 20px; border-radius: 100px;
+    font-size: 13px; font-weight: 600; color: #fff;
+    z-index: 25; display: flex; align-items: center; gap: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+    box-shadow: 0 8px 32px rgba(99,102,241,0.5);
+    opacity: 0; animation: bannerIn 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards;
+  }
+  @keyframes bannerIn { to { opacity:1; transform: translateX(-50%) translateY(0); } }
+  .find-banner .spinner {
+    width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .found-banner {
+    position: absolute; top: 170px; left: 50%; transform: translateX(-50%) scale(0.8);
+    background: linear-gradient(135deg, rgba(16,185,129,0.95), rgba(5,150,105,0.95));
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    padding: 14px 24px; border-radius: 18px;
+    z-index: 25; text-align: center;
+    border: 1px solid rgba(255,255,255,0.2);
+    box-shadow: 0 12px 40px rgba(16,185,129,0.5);
+    animation: foundIn 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards;
+  }
+  @keyframes foundIn { to { transform: translateX(-50%) scale(1); } }
+  .found-check {
+    width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,0.2);
+    display:flex; align-items:center; justify-content:center; font-size:22px;
+    margin:0 auto 6px; animation: checkPop 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.2s both;
+  }
+  @keyframes checkPop { 0%{transform:scale(0);} 100%{transform:scale(1);} }
+  .found-title { font-size: 14px; font-weight: 800; letter-spacing: 1.5px; color:#fff; }
+  .found-detail { font-size: 11px; color: rgba(255,255,255,0.85); margin-top: 4px; font-weight:500; }
+
+  .confetti { position:absolute; top:0; left:0; width:8px; height:8px; border-radius:2px; animation: confFall 1.5s ease-out forwards; pointer-events:none; z-index: 30; }
+  @keyframes confFall {
+    0% { transform: translate(0,0) rotate(0); opacity:1; }
+    100% { transform: translate(var(--cx), var(--cy)) rotate(720deg); opacity:0; }
+  }
+
+  .voice-bubble {
+    position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%) translateY(10px);
+    background: rgba(10,12,20,0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.12); padding: 10px 16px; border-radius: 16px;
+    max-width: 300px; font-size: 13px; color: #fff; z-index: 40;
+    opacity: 0; transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .voice-bubble.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .voice-bubble.response { background: linear-gradient(135deg, rgba(16,185,129,0.95), rgba(5,150,105,0.95)); border-color: rgba(255,255,255,0.2); }
+  .voice-bubble::after {
+    content:''; position:absolute; bottom:-6px; left:50%; transform:translateX(-50%) rotate(45deg);
+    width:12px; height:12px; background: inherit; border-right:1px solid rgba(255,255,255,0.12); border-bottom:1px solid rgba(255,255,255,0.12);
+  }
+
+  /* Bottom sheet */
+  .bottom-sheet {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 42%;
+    background: linear-gradient(180deg, rgba(15,19,32,0.95) 0%, rgba(10,12,20,0.98) 100%);
+    backdrop-filter: blur(30px) saturate(1.5); -webkit-backdrop-filter: blur(30px) saturate(1.5);
+    border-top: 1px solid var(--stroke);
+    border-top-left-radius: var(--radius-xl); border-top-right-radius: var(--radius-xl);
+    padding: 20px 20px 24px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+    z-index: 30;
+  }
+  .sheet-handle {
+    width: 40px; height: 4px; background: rgba(255,255,255,0.2);
+    border-radius: 2px; align-self: center; margin-bottom: 16px; margin-top: -8px;
+  }
+  .chip-row { display:flex; gap:8px; overflow-x:auto; padding-bottom: 8px; flex-shrink:0; scrollbar-width:none; }
+  .chip-row::-webkit-scrollbar { display:none; }
+  .count-chip {
+    flex-shrink:0; display:flex; align-items:center; gap:6px;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--stroke);
+    padding: 7px 14px; border-radius: 100px; font-size: 12px; font-weight: 600;
+    transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .count-chip:hover { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); }
+  .chip-n {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-weight: 800; font-size: 14px; min-width: 18px; text-align:center;
+  }
+  .chip-l { color: #fff; text-transform: capitalize; font-weight: 500; font-size: 12px; }
+  .det-list { flex: 1; margin-top: 10px; overflow-y: auto; scrollbar-width:none; }
+  .det-list::-webkit-scrollbar { display:none; }
+  .det-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 14px; background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: var(--radius-sm); margin-bottom: 6px;
+    transition: all 0.2s;
+  }
+  .det-row:hover { background: rgba(255,255,255,0.07); }
+  .det-row-l { display:flex; align-items:center; gap:10px; }
+  .conf-dot { width:10px; height:10px; border-radius:50%; box-shadow: 0 0 8px currentColor; }
+  .conf-dot.high { background: var(--success); color: var(--success-glow); }
+  .conf-dot.medium { background: var(--warn); color: rgba(245,158,11,0.5); }
+  .conf-dot.low { background: var(--danger); color: rgba(239,68,68,0.4); }
+  .det-name { color:#fff; font-size: 13px; font-weight:600; text-transform: capitalize; display:flex; align-items:center; gap:6px; }
+  .det-id { color: rgba(255,255,255,0.35); font-size: 10px; font-family: monospace; }
+  .det-row-r { text-align:right; font-size: 10px; color: rgba(255,255,255,0.5); line-height: 1.4; }
+  .det-conf { font-weight:700; font-size:12px; }
+  .action-bar { display:flex; justify-content: space-around; align-items:center; padding-top: 12px; gap:8px; flex-shrink:0; }
+  .act-btn {
+    background:none; border:none; color:rgba(255,255,255,0.7);
+    display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer;
+    padding: 8px; font-size: 10px; font-weight: 600; transition: all 0.2s;
+  }
+  .act-btn:hover { color:#fff; transform: translateY(-2px); }
+  .act-ic { font-size: 22px; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3)); }
+  .mic-btn {
+    width: 70px; height: 70px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366F1, #8B5CF6);
+    border: 3px solid rgba(255,255,255,0.15);
+    color: #fff; font-size: 30px; cursor: pointer;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow: 0 8px 24px rgba(99,102,241,0.5), 0 0 0 0 rgba(99,102,241,0.4);
+    transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    margin-top: -20px; position:relative;
+  }
+  .mic-btn::before {
+    content:''; position:absolute; inset:-8px; border-radius:50%;
+    border: 2px solid rgba(99,102,241,0.3); opacity:0;
+  }
+  .mic-btn.active {
+    background: linear-gradient(135deg, var(--success), #059669);
+    box-shadow: 0 8px 32px var(--success-glow);
+    animation: micPulse 1.2s ease-in-out infinite;
+    transform: scale(1.08);
+  }
+  .mic-btn.active::before { animation: ringPulse 1.5s ease-out infinite; opacity:1; }
+  @keyframes micPulse {
+    0%,100% { box-shadow: 0 8px 24px var(--success-glow); }
+    50% { box-shadow: 0 8px 40px var(--success-glow), 0 0 0 12px rgba(16,185,129,0); }
+  }
+  @keyframes ringPulse {
+    0%{transform:scale(1);opacity:0.6;}
+    100%{transform:scale(1.5);opacity:0;}
+  }
+  .waveform { display: flex; align-items: end; gap: 3px; height: 18px; margin-top: 6px; }
+  .wave-bar { width: 3px; background: #fff; border-radius: 2px; animation: wave 1s ease-in-out infinite; }
+  @keyframes wave {
+    0%,100% { height: 4px; }
+    50% { height: var(--h, 14px); }
+  }
+
+  /* ============ SECONDARY SCREENS ============ */
+  .page {
+    height: 100%; display:flex; flex-direction:column;
+    position: relative; z-index:2;
+    background: transparent;
+  }
+  .page-hdr {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 52px 20px 16px;
+  }
+  .page-body { flex:1; padding: 8px 24px 30px; overflow-y: auto; scrollbar-width:none; }
+  .page-body::-webkit-scrollbar { display:none; }
+  .page-title { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; color:#fff; margin-bottom: 20px; margin-top: 8px; }
+
+  /* Find screen */
+  .search-box {
+    display:flex; gap:10px; margin-bottom: 14px;
+  }
+  .search-in {
+    flex:1; background: var(--glass); border: 1px solid var(--stroke);
+    border-radius: var(--radius); padding: 14px 18px; color:#fff; font-size: 15px;
+    font-family: inherit; outline: none; transition: all 0.25s;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  }
+  .search-in:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+  .search-in::placeholder { color: rgba(255,255,255,0.3); }
+  .mic-round {
+    width:52px; height:52px; border-radius: var(--radius); border:none; cursor:pointer;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff;
+    font-size: 22px; display:flex; align-items:center; justify-content:center;
+    box-shadow: 0 4px 16px rgba(99,102,241,0.4); transition: all 0.25s;
+  }
+  .mic-round:hover { transform: scale(1.05); }
+  .mic-round.rec { background: linear-gradient(135deg, var(--success), #059669); animation: micPulse 1.2s ease-in-out infinite; }
+
+  .listen-box {
+    background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2);
+    padding: 16px; border-radius: var(--radius);
+    display:flex; align-items:center; gap:14px; margin-bottom:14px;
+    opacity: 0; transform: translateY(6px); transition: all 0.3s;
+  }
+  .listen-box.show { opacity:1; transform: translateY(0); }
+  .wave-big { display:flex; align-items:end; gap:4px; height: 28px; }
+  .wave-big .w { width:4px; background: var(--success); border-radius:2px; animation: wave 1s ease-in-out infinite; }
+
+  .obj-grid { display:grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+  .obj-chip {
+    aspect-ratio: 1; background: var(--glass); border: 1px solid var(--stroke);
+    border-radius: var(--radius); display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap: 6px; cursor:pointer;
+    transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    position: relative; overflow: hidden;
+  }
+  .obj-chip::before {
+    content:''; position:absolute; inset:0;
+    background: linear-gradient(135deg, rgba(99,102,241,0.2), transparent);
+    opacity:0; transition: opacity 0.3s;
+  }
+  .obj-chip:hover { transform: translateY(-3px) scale(1.02); border-color: rgba(99,102,241,0.4); }
+  .obj-chip:hover::before { opacity:1; }
+  .obj-chip:active { transform: scale(0.96); }
+  .obj-em { font-size: 32px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3)); z-index:1; }
+  .obj-nm { color:#fff; font-size: 11px; font-weight: 600; z-index:1; }
+
+  /* Result */
+  .hero-card {
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1));
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: var(--radius-lg);
+    padding: 32px; text-align:center;
+    margin-bottom: 16px; position:relative; overflow:hidden;
+  }
+  .hero-card::before {
+    content:''; position:absolute; top:-50%; left:-50%; width:200%; height:200%;
+    background: radial-gradient(circle, rgba(99,102,241,0.15), transparent 40%);
+    animation: heroShimmer 6s linear infinite;
+  }
+  @keyframes heroShimmer { to { transform: rotate(360deg); } }
+  .hero-em { font-size: 72px; margin-bottom: 8px; filter: drop-shadow(0 8px 24px rgba(99,102,241,0.5)); position:relative; z-index:1; animation: pop 0.6s cubic-bezier(0.34,1.56,0.64,1); }
+  @keyframes pop { 0%{transform:scale(0);} 100%{transform:scale(1);} }
+  .hero-nm { font-size: 26px; font-weight: 800; letter-spacing: 2px; background: linear-gradient(135deg,#fff,#c4b5fd); -webkit-background-clip:text; background-clip:text; color:transparent; position:relative; z-index:1; }
+
+  .card { background: var(--glass); border:1px solid var(--stroke); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+  .row { display:flex; justify-content:space-between; align-items:center; padding: 8px 0; }
+  .row-l { color: var(--text-dim); font-size: 13px; font-weight:500; }
+  .row-v { color:#fff; font-size:13px; font-weight:700; }
+  .row-v.g { color: var(--success); }
+
+  /* Settings */
+  .sec-label { color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin: 20px 4px 10px; }
+  .setting-group { background: var(--glass); border:1px solid var(--stroke); border-radius: var(--radius); overflow:hidden; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+  .setting-row { display:flex; justify-content:space-between; align-items:center; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .setting-row:last-child { border-bottom: none; }
+  .s-name { color:#fff; font-size: 14px; font-weight: 600; }
+  .s-desc { color: var(--text-muted); font-size: 11px; margin-top: 3px; }
+  .toggle { width:44px; height:26px; border-radius:13px; background: rgba(255,255,255,0.1); position:relative; cursor:pointer; transition: background 0.3s; }
+  .toggle::after { content:''; position:absolute; top:3px; left:3px; width:20px; height:20px; background:#fff; border-radius:50%; transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .toggle.on { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  .toggle.on::after { transform: translateX(18px); }
+  .preset-row { display:flex; gap:8px; padding: 12px 16px; }
+  .preset { padding:7px 14px; border-radius: 10px; background: rgba(255,255,255,0.06); border:1px solid var(--stroke); color: rgba(255,255,255,0.7); font-size:11px; font-weight:600; cursor:pointer; transition: all 0.2s; }
+  .preset.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color:#fff; }
+  .about { text-align:center; padding: 30px 20px; }
+  .about-nm { font-size: 20px; font-weight: 800; letter-spacing: 1; background: linear-gradient(135deg,#fff,#c4b5fd); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .about-v { color:var(--text-muted); font-size:11px; margin: 4px 0 12px; }
+  .about-d { color: var(--text-dim); font-size: 11px; line-height: 1.6; max-width: 260px; margin:0 auto; }
+
+  /* ============ ANIMATIONS ============ */
+  .fade-up { opacity:0; transform: translateY(12px); animation: fadeUp 0.6s cubic-bezier(0.22,1,0.36,1) forwards; }
+  @keyframes fadeUp { to { opacity:1; transform: translateY(0); } }
+  .d1 { animation-delay: 0.05s; } .d2 { animation-delay: 0.1s; } .d3 { animation-delay: 0.15s; }
+  .d4 { animation-delay: 0.2s; } .d5 { animation-delay: 0.25s; } .d6 { animation-delay: 0.3s; }
+  .d7 { animation-delay: 0.35s; } .d8 { animation-delay: 0.4s; }
+
+  /* Ripple */
+  .ripple { position:absolute; border-radius:50%; background:rgba(255,255,255,0.3); transform: scale(0); animation: ripple 0.6s ease-out; pointer-events:none; }
+  @keyframes ripple { to { transform: scale(4); opacity: 0; } }
+
+  /* Home indicator */
+  .home-indicator { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:130px; height:4px; background: rgba(255,255,255,0.2); border-radius:2px; z-index:500; }
+
+  /* Status bar */
+  .status-bar { position:absolute; top:0; left:0; right:0; height: 48px; display:flex; justify-content:space-between; align-items:center; padding: 0 28px; font-size: 14px; font-weight: 600; z-index: 200; color:#fff; }
+  .status-bar .time { font-variant-numeric: tabular-nums; }
+  .status-icons { display:flex; gap:5px; align-items:center; font-size: 12px; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="phone">
+    <div class="side-buttons">
+      <div class="side-btn"></div><div class="side-btn"></div><div class="side-btn"></div>
+    </div>
+    <div class="side-btn power"></div>
+    <div class="notch">
+      <div class="notch-cam"></div>
+      <div class="notch-dot"></div>
+    </div>
+    <div class="screen">
+      <div class="status-bar">
+        <span class="time" id="clock">9:41</span>
+        <div class="status-icons"><span>●●●</span><span>📶</span><span>🔋</span></div>
+      </div>
+
+      <!-- ====== HOME ====== -->
+      <div id="screen-home" class="screen-view active">
+        <div class="mesh-bg"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+        <div class="content">
+          <div class="logo-wrap fade-up d1" style="position:relative">
+            <div class="logo-ring"></div>
+            <div class="logo-outer">
+              <div class="logo-inner">👁️</div>
+            </div>
+          </div>
+          <div class="brand fade-up d2">
+            <h1 class="brand-title">WorldLens</h1>
+            <div class="brand-sub">AI Reality Scanner</div>
+          </div>
+          <p class="tagline fade-up d3">See the world through AI. Point your camera to detect, identify, count and find objects around you — entirely on-device.</p>
+
+          <div class="features-grid">
+            <div class="feat-card fade-up d4"><div class="feat-ic">🎯</div><div class="feat-tx">Real-time detection</div></div>
+            <div class="feat-card fade-up d5"><div class="feat-ic">🔢</div><div class="feat-tx">Count & track</div></div>
+            <div class="feat-card fade-up d6"><div class="feat-ic">🎤</div><div class="feat-tx">Voice control</div></div>
+            <div class="feat-card fade-up d7"><div class="feat-ic">📍</div><div class="feat-tx">AR directions</div></div>
+          </div>
+
+          <div class="home-actions fade-up d8">
+            <button class="btn btn-primary shine" onclick="go('scanner', 'home')">
+              <span>📷</span><span>Start Scanning</span>
+            </button>
+            <button class="btn btn-ghost" onclick="go('find','home')">
+              <span>🔎</span><span>Find an Object</span>
+            </button>
+            <button class="btn btn-ghost" style="justify-self:start;background:transparent;border:none;color:var(--text-muted);font-size:14px;" onclick="go('settings','home')">
+              ⚙️ Settings
+            </button>
+          </div>
+          <div class="status-pill fade-up d8"><div class="live-dot"></div> Fully offline · On-device AI</div>
+        </div>
+      </div>
+
+      <!-- ====== SCANNER ====== -->
+      <div id="screen-scanner" class="screen-view">
+        <div class="viewfinder">
+          <div class="camera-feed">
+            <div class="camera-noise"></div>
+            <div class="grid-overlay"></div>
+            <div class="reticle">
+              <div class="reticle-ring"></div>
+              <div class="reticle-ring r2"></div>
+              <div class="reticle-ring r3"></div>
+              <div class="reticle-dot"></div>
+            </div>
+            <div class="cam-center-text">AI VISION ACTIVE</div>
+          </div>
+          <div class="vf-corners">
+            <div class="vf-corner tl"></div><div class="vf-corner tr"></div>
+            <div class="vf-corner bl"></div><div class="vf-corner br"></div>
+          </div>
+          <div class="scan-line"></div>
+          <div id="boxesLayer"></div>
+          <div class="hud-panel scene-hud">
+            <div class="hud-label">Scene</div>
+            <div class="hud-value"><span class="dot"></span><span id="sceneVal">Analyzing</span></div>
+          </div>
+          <div class="hud-panel stats-hud">
+            <div class="stat-row"><span>FPS</span><span id="fpsVal">—</span></div>
+            <div class="stat-row"><span>INF</span><span id="infVal">—</span></div>
+            <div class="stat-row"><span>OBJ</span><span id="objVal">0</span></div>
+            <div class="stat-row"><span>NNAPI</span><span>ON</span></div>
+          </div>
+          <div class="top-bar">
+            <button class="btn-icon" onclick="go('home','scanner')">←</button>
+            <button class="btn-icon" onclick="switchCam()">⟲</button>
+          </div>
+          <div id="findBanner" class="find-banner hidden"><div class="spinner"></div><span id="findText"></span></div>
+          <div id="foundBanner" class="found-banner hidden">
+            <div class="found-check">✓</div>
+            <div class="found-title" id="foundTitle"></div>
+            <div class="found-detail" id="foundDetail"></div>
+          </div>
+          <div id="voiceBubble" class="voice-bubble"></div>
+        </div>
+
+        <div class="bottom-sheet">
+          <div class="sheet-handle"></div>
+          <div class="chip-row" id="chipRow"></div>
+          <div class="det-list" id="detList"></div>
+          <div class="action-bar">
+            <button class="act-btn" onclick="go('find','scanner')"><span class="act-ic">🔎</span>Find</button>
+
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+              <button class="mic-btn" id="micBtn" onclick="toggleMic(event)">
+                <span id="micIcon">🎤</span>
+              </button>
+              <div style="color:var(--text-dim);font-size:10px;font-weight:600;letter-spacing:1px;" id="micLabel">ASK AI</div>
+            </div>
+
+            <button class="act-btn" onclick="infoAction()"><span class="act-ic">✨</span>Info</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== FIND ====== -->
+      <div id="screen-find" class="screen-view">
+        <div class="mesh-bg"><div class="orb o1"></div><div class="orb o2"></div></div>
+        <div class="page">
+          <div class="page-hdr">
+            <button class="btn-icon" onclick="goBack()">←</button>
+            <button class="btn-icon" style="opacity:0;pointer-events:none;">⚙</button>
+          </div>
+          <div class="page-body">
+            <div class="page-title">What do you want <br/>to find?</div>
+            <div class="search-box">
+              <input class="search-in" id="findInput" placeholder="Type an object name..." oninput="onFindInput(event)" onkeydown="if(event.key==='Enter')startSearch()"/>
+              <button class="mic-round" id="findMic" onclick="voiceSearch()">🎤</button>
+            </div>
+            <div class="listen-box" id="listenBox">
+              <div class="wave-big">
+                <div class="w" style="--h:20px;animation-delay:0s"></div>
+                <div class="w" style="--h:28px;animation-delay:0.1s"></div>
+                <div class="w" style="--h:16px;animation-delay:0.2s"></div>
+                <div class="w" style="--h:24px;animation-delay:0.3s"></div>
+                <div class="w" style="--h:18px;animation-delay:0.4s"></div>
+              </div>
+              <div><div style="color:var(--success);font-weight:700;font-size:13px;">Listening</div><div style="color:var(--text-dim);font-size:11px;margin-top:2px;">Say an object name</div></div>
+            </div>
+            <button class="btn btn-primary shine hidden" id="findGo" onclick="startSearch()" style="width:100%;margin-bottom:20px;">
+              <span>🔎</span><span id="findGoText">Start Search</span>
+            </button>
+            <div class="sec-label" style="margin-top:4px">Quick select</div>
+            <div class="obj-grid" id="objGrid"></div>
+            <p class="about-d" style="text-align:center;margin-top:28px;">
+              WorldLens recognizes 80+ common objects using its on-device AI. It doesn't recognize every object.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== RESULT ====== -->
+      <div id="screen-result" class="screen-view">
+        <div class="mesh-bg"><div class="orb o1"></div><div class="orb o2"></div></div>
+        <div class="page">
+          <div class="page-hdr">
+            <button class="btn-icon" onclick="goBack()">←</button>
+            <button class="btn-icon" style="opacity:0">⚙</button>
+          </div>
+          <div class="page-body" id="resultBody"></div>
+        </div>
+      </div>
+
+      <!-- ====== SETTINGS ====== -->
+      <div id="screen-settings" class="screen-view">
+        <div class="mesh-bg"><div class="orb o1"></div><div class="orb o2"></div></div>
+        <div class="page">
+          <div class="page-hdr">
+            <button class="btn-icon" onclick="goBack()">←</button>
+            <button class="btn-icon" style="opacity:0">⚙</button>
+          </div>
+          <div class="page-body">
+            <div class="page-title">Settings</div>
+            <div class="sec-label">AI Model</div>
+            <div class="setting-group">
+              <div class="setting-row"><div><div class="s-name">Detection Model</div></div><div class="row-v">SSDLite MV3</div></div>
+              <div class="setting-row"><div><div class="s-name">Input Resolution</div></div><div class="row-v">320 × 320</div></div>
+              <div class="setting-row"><div><div class="s-name">Classes</div></div><div class="row-v">80 (COCO)</div></div>
+              <div class="setting-row"><div><div class="s-name">Runtime</div></div><div class="row-v">ONNX Mobile</div></div>
+            </div>
+            <div class="sec-label">Inference</div>
+            <div class="setting-group">
+              <div class="setting-row"><div><div class="s-name">GPU Acceleration</div><div class="s-desc">Use GPU delegate when available</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+              <div class="setting-row"><div><div class="s-name">NNAPI Delegate</div><div class="s-desc">Android neural accelerator</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+              <div class="setting-row"><div><div class="s-name">Object Tracking</div><div class="s-desc">Maintain identities across frames</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+              <div class="setting-row"><div><div class="s-name">Confidence Threshold</div></div><div class="row-v" id="threshVal">45%</div></div>
+              <div class="preset-row">
+                <button class="preset" onclick="setThresh(this,0.3)">30%</button>
+                <button class="preset active" onclick="setThresh(this,0.45)">45%</button>
+                <button class="preset" onclick="setThresh(this,0.6)">60%</button>
+                <button class="preset" onclick="setThresh(this,0.75)">75%</button>
+              </div>
+            </div>
+            <div class="sec-label">Voice</div>
+            <div class="setting-group">
+              <div class="setting-row"><div><div class="s-name">Voice Interaction</div><div class="s-desc">Commands & spoken responses</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+            </div>
+            <div class="about">
+              <div class="about-nm">WorldLens</div>
+              <div class="about-v">Version 1.0.0</div>
+              <div class="about-d">On-device AI reality scanner. Detection runs entirely on your phone — no camera data leaves your device, no internet required.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Clock
+function tickClock(){
+  const d = new Date();
+  document.getElementById('clock').textContent = d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');
+}
+tickClock(); setInterval(tickClock, 10000);
+
+// Ripple effect on buttons
+document.addEventListener('click', e => {
+  const t = e.target.closest('.btn,.btn-icon,.mic-btn,.obj-chip,.preset,.count-chip,.feat-card,.act-btn');
+  if (!t) return;
+  const r = document.createElement('span'); r.className='ripple';
+  const rect = t.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  r.style.width = r.style.height = size+'px';
+  r.style.left = (e.clientX - rect.left - size/2)+'px';
+  r.style.top = (e.clientY - rect.top - size/2)+'px';
+  t.style.position = t.style.position || 'relative'; t.style.overflow='hidden';
+  t.appendChild(r); setTimeout(()=>r.remove(),600);
+});
+
+// ============ APP STATE ============
+const COCO = ['person','bicycle','car','motorcycle','bus','truck','bird','cat','dog','backpack','umbrella','handbag','bottle','cup','fork','knife','spoon','bowl','banana','apple','sandwich','orange','chair','couch','potted plant','bed','dining table','tv','laptop','mouse','remote','keyboard','cell phone','book','clock','toothbrush'];
+const SYN = {people:'person',man:'person',woman:'person',guy:'person',kid:'person',child:'person',car:'car',vehicle:'car',cup:'cup',mug:'cup',glass:'cup',chair:'chair',seats:'chair',phone:'cell phone',mobile:'cell phone',cellphone:'cell phone',tv:'tv',television:'tv',laptop:'laptop',computer:'laptop',bottle:'bottle',dog:'dog',cat:'cat',bird:'bird',backpack:'backpack',bag:'backpack',book:'book',table:'dining table',desk:'dining table',bike:'bicycle',bicycle:'bicycle'};
+const EMOJI = {person:'🧑',bicycle:'🚲',car:'🚗',motorcycle:'🏍️',bus:'🚌',truck:'🚚',bird:'🐦',cat:'🐈',dog:'🐕',bottle:'🍶',cup:'☕',chair:'🪑',laptop:'💻',book:'📖',backpack:'🎒','cell phone':'📱',tv:'📺',banana:'🍌',apple:'🍎','dining table':'🪑',couch:'🛋️',keyboard:'⌨️',spoon:'🥄',fork:'🍴',bowl:'🥣','potted plant':'🪴',sandwich:'🥪',orange:'🍊',knife:'🔪',mouse:'🖱️',remote:'🎮',umbrella:'☂️'};
+const DESC = {person:'A human being. One of the most commonly recognized object classes in everyday scenes.',bottle:'A container typically used for holding liquids such as water or drinks.',cup:'A cup or mug, commonly used for hot beverages like coffee or tea.',chair:'A piece of furniture designed for sitting, with a seat, backrest, and typically four legs.',laptop:'A portable personal computer with an integrated screen and keyboard.','cell phone':'A mobile phone used for communication, apps, media, and browsing.',book:'A bound collection of pages containing text or images, used for reading.',car:'A four-wheeled motor vehicle used for road transportation.',dog:'A domesticated canine mammal, often kept as a pet or working companion.',cat:'A small domesticated carnivorous mammal with soft fur, a short snout, and retractile claws.',backpack:'A fabric pack carried on the back with two shoulder straps, used for carrying items.',tv:'A large electronic screen for watching broadcast, streamed, or connected video content.',bicycle:'A human-powered two-wheeled vehicle with pedals, handlebars, and a frame.'};
+const QUICK = [{n:'Person',l:'person',e:'🧑'},{n:'Bottle',l:'bottle',e:'🍶'},{n:'Cup',l:'cup',e:'☕'},{n:'Chair',l:'chair',e:'🪑'},{n:'Laptop',l:'laptop',e:'💻'},{n:'Phone',l:'cell phone',e:'📱'},{n:'Book',l:'book',e:'📖'},{n:'Car',l:'car',e:'🚗'},{n:'Dog',l:'dog',e:'🐕'},{n:'Cat',l:'cat',e:'🐈'},{n:'Backpack',l:'backpack',e:'🎒'},{n:'TV',l:'tv',e:'📺'}];
+const SCENES = {kitchen:{label:'Kitchen',objects:['bottle','cup','bowl','knife','spoon','fork','microwave','oven','sink','refrigerator']},office:{label:'Office',objects:['laptop','keyboard','mouse','chair','tv','book','cell phone']},classroom:{label:'Classroom',objects:['chair','person','book','laptop','backpack']},street:{label:'Street',objects:['car','bus','truck','traffic light','person','motorcycle','bicycle']},living_room:{label:'Living Room',objects:['couch','chair','tv','potted plant','book']},restaurant:{label:'Restaurant',objects:['bottle','cup','fork','knife','spoon','bowl','chair','dining table','person']}};
+const SIM = [
+  {label:'person',bx:0.13,by:0.22,bw:0.23,bh:0.56},
+  {label:'bottle',bx:0.65,by:0.53,bw:0.09,bh:0.20},
+  {label:'chair',bx:0.42,by:0.59,bw:0.22,bh:0.30},
+  {label:'laptop',bx:0.38,by:0.43,bw:0.18,bh:0.14},
+  {label:'cup',bx:0.70,by:0.49,bw:0.07,bh:0.09},
+];
+
+const state = {
+  current:'home', prev:'home',
+  findMode:{active:false,target:null,status:'idle',found:null},
+  confidenceThreshold:0.45,
+  tracks:new Map(), nextId:1,
+  frameTimes:[], fps:0,
+  sceneHist:[], scene:null,
+  listening:false, facing:0, lastRes:null
+};
+
+// ============ NAVIGATION ============
+function go(name, from){
+  if (name==='scanner' && state.current!=='scanner') { resetTracker(); state.frameTimes=[]; }
+  const cur = document.getElementById('screen-'+state.current);
+  const next = document.getElementById('screen-'+name);
+  cur.classList.add('exit');
+  cur.classList.remove('active');
+  setTimeout(()=>cur.classList.remove('exit'), 500);
+  next.classList.add('active');
+  state.prev = state.current; state.current = name;
+  if (name==='find') renderGrid();
+  if (name==='result' && state.lastRes) renderResult();
+}
+function goBack(){
+  if (state.current==='scanner') go('home');
+  else if (state.current==='result'){ state.findMode.active=false; go('scanner'); }
+  else if (state.current==='find') go('scanner');
+  else if (state.current==='settings') go('home');
+}
+
+// ============ TRACKER ============
+function resetTracker(){ state.tracks.clear(); state.nextId=1; }
+function IOU(a,b){const ix1=Math.max(a.x,b.x),iy1=Math.max(a.y,b.y),ix2=Math.min(a.x+a.width,b.x+b.width),iy2=Math.min(a.y+a.height,b.y+b.height);const iw=Math.max(0,ix2-ix1),ih=Math.max(0,iy2-iy1),int=iw*ih;return int/(a.width*a.height+b.width*b.height-int)||0;}
+function updateTracker(dets,now){
+  const pairs=[];
+  state.tracks.forEach((t,id)=>dets.forEach((d,di)=>{if(d.label===t.label){const i=IOU(d.boundingBox,t.boundingBox);if(i>=0.3)pairs.push({di,tid:id,iou:i});}}));
+  pairs.sort((a,b)=>b.iou-a.iou);
+  const mD=new Set(),mT=new Set();const matches=[];
+  for(const p of pairs){if(mD.has(p.di)||mT.has(p.tid))continue;mD.add(p.di);mT.add(p.tid);matches.push(p);}
+  const nt=new Map();
+  for(const p of matches){const d=dets[p.di];const t=state.tracks.get(p.tid);nt.set(p.tid,{...t,...d,trackingId:p.tid,age:t.age+1,missed:0,active:true,lastSeen:now});}
+  state.tracks.forEach((t,id)=>{if(!mT.has(id)){t.missed++;if(t.missed<15)nt.set(id,t);}});
+  for(let di=0;di<dets.length;di++){if(!mD.has(di)&&nt.size<30){const d=dets[di];const id=state.nextId++;nt.set(id,{...d,trackingId:id,age:1,missed:0,active:false,firstSeen:now,lastSeen:now});}}
+  state.tracks=nt;
+  return [...nt.values()].filter(t=>t.missed<=2 && (t.active||t.age>=2));
+}
+
+// ============ DETECTIONS ============
+function simulate(t){
+  const out=[];
+  for(const m of SIM){
+    if(Math.sin(t*0.3+m.bx*10)<-0.3)continue;
+    const jx=Math.sin(t*0.5+m.bx*7)*0.02,jy=Math.cos(t*0.7+m.by*5)*0.02,jw=Math.sin(t*0.4+m.bw*11)*0.01;
+    const conf=0.7+Math.sin(t*2+m.label.length)*0.2;
+    if(conf<state.confidenceThreshold)continue;
+    out.push({id:Math.random().toString(36).slice(2,8),label:m.label,confidence:Math.min(0.99,Math.max(0.5,conf)),boundingBox:{x:Math.max(0,m.bx+jx),y:Math.max(0,m.by+jy),width:Math.min(1-m.bx,Math.max(0.03,m.bw+jw)),height:Math.min(1-m.by,Math.max(0.03,m.bh+jw*2))}});
+  }
+  return out;
+}
+function spatialInfo(box){
+  const cx=box.x+box.width/2,area=box.width*box.height;
+  let hp='center';if(cx<0.35)hp='left';else if(cx>0.65)hp='right';
+  let dist='medium',dm;
+  if(area>0.15){dist='close';dm=0.8;}else if(area>0.05){dist='medium';dm=2.0;}else if(area>0.01){dist='medium';dm=3.5;}else{dist='far';dm=5.0;}
+  return{hp,dist,dm:dm.toFixed(1)};
+}
+function classifyScene(active){
+  const c={};active.forEach(o=>{c[o.label]=(c[o.label]||0)+1;});
+  let best={cat:'unknown',label:'Analyzing...',conf:0};
+  const scores=[];let tot=0;
+  for(const[cat,h]of Object.entries(SCENES)){let s=0;for(const l of Object.keys(c))if(h.objects.includes(l))s+=c[l];if(s>0){scores.push({cat,label:h.label,score:s});tot+=s;}}
+  if(scores.length){scores.sort((a,b)=>b.score-a.score);best={...scores[0],conf:scores[0].score/tot};}
+  state.sceneHist.push(best.cat);if(state.sceneHist.length>15)state.sceneHist.shift();
+  const votes={};state.sceneHist.forEach(c=>votes[c]=(votes[c]||0)+1);
+  let top='unknown',tv=0;for(const[c,v]of Object.entries(votes))if(v>tv){top=c;tv=v;}
+  if(top!=='unknown'){return{cat:top,label:SCENES[top]?.label||'Environment',conf:best.conf};}
+  return best;
+}
+
+// ============ RENDER LOOP ============
+function tick(){
+  const now=performance.now()/1000;const pnow=performance.now();
+  state.frameTimes.push(pnow);while(state.frameTimes.length&&state.frameTimes[0]<pnow-1000)state.frameTimes.shift();
+  state.fps=state.frameTimes.length;
+  const inferMs = 30+Math.random()*20;
+
+  if(state.current==='scanner'){
+    const dets=simulate(now);
+    const active=updateTracker(dets,pnow);
+    const counts={};const seen=new Set();
+    active.forEach(t=>{if(!t.active||t.missed>2||seen.has(t.trackingId))return;seen.add(t.trackingId);counts[t.label]=(counts[t.label]||0)+1;});
+    const scene=classifyScene(active);
+    document.getElementById('sceneVal').textContent=scene.label;
+    const activeCount=active.filter(t=>t.active).length;
+    document.getElementById('objVal').textContent=activeCount;
+    document.getElementById('fpsVal').textContent=state.fps;
+    document.getElementById('infVal').textContent=inferMs.toFixed(0)+'ms';
+
+    const PA=document.querySelector('.viewfinder');if(PA){
+      const W=PA.clientWidth,H=PA.clientHeight;
+      const boxes=document.getElementById('boxesLayer');
+      const existingHtml=boxes._cacheHtml||'';
+      boxes.innerHTML='';
+      let foundObj=null;
+      active.forEach(t=>{
+        if(t.missed>2||!t.active)return;
+        const isTarget=state.findMode.active&&state.findMode.target===t.label&&t.confidence>=0.5;
+        if(isTarget)foundObj=t;
+        const tier=t.confidence>=0.75?'high':t.confidence>=0.5?'medium':'low';
+        const bx=t.boundingBox.x*W,by=t.boundingBox.y*H,bw=t.boundingBox.width*W,bh=t.boundingBox.height*H;
+        const div=document.createElement('div');
+        div.className=`det-box ${tier}${isTarget?' highlight':''}`;
+        div.style.left=bx+'px';div.style.top=by+'px';div.style.width=bw+'px';div.style.height=bh+'px';
+        div.innerHTML=`
+          <div class="box-stroke"></div>
+          <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+          <div class="det-label"><span>${t.label.toUpperCase()}</span><span class="track-tag">#${t.trackingId}</span><span class="conf-tag">${Math.round(t.confidence*100)}%</span></div>
+        `;
+        boxes.appendChild(div);
+      });
+
+      // chips
+      const cr=document.getElementById('chipRow');cr.innerHTML='';
+      Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([l,n])=>{
+        const pill=document.createElement('div');pill.className='count-chip';
+        pill.innerHTML=`<span class="chip-n">${n}</span><span class="chip-l">${l}</span>`;
+        cr.appendChild(pill);
+      });
+
+      // list
+      const dl=document.getElementById('detList');dl.innerHTML='';
+      active.filter(t=>t.active&&t.missed<=2).slice(0,5).forEach(t=>{
+        const s=spatialInfo(t.boundingBox);
+        const tier=t.confidence>=0.75?'high':t.confidence>=0.5?'medium':'low';
+        const row=document.createElement('div');row.className='det-row';
+        row.innerHTML=`<div class="det-row-l"><div class="conf-dot ${tier}"></div><div class="det-name">${t.label}<span class="det-id">#${t.trackingId}</span></div></div><div class="det-row-r"><div class="det-conf" style="color:${tier==='high'?'#10B981':tier==='medium'?'#F59E0B':'#EF4444'}">${Math.round(t.confidence*100)}%</div>${s.hp} · ${s.dist}</div>`;
+        dl.appendChild(row);
+      });
+
+      // find mode ui
+      const fb=document.getElementById('findBanner'),fob=document.getElementById('foundBanner');
+      if(state.findMode.active){
+        if(foundObj){
+          state.findMode.status='found';state.findMode.found=foundObj;
+          fb.classList.add('hidden');
+          const s=spatialInfo(foundObj.boundingBox);
+          const dir=s.hp==='left'?'Slightly to your left':s.hp==='right'?'Slightly to your right':'Right in front of you';
+          document.getElementById('foundTitle').textContent=foundObj.label.toUpperCase()+' FOUND';
+          document.getElementById('foundDetail').textContent=`${dir} · ~${s.dm} m`;
+          fob.classList.remove('hidden');
+          spawnConfetti(foundObj.boundingBox, W, H);
+        } else {
+          state.findMode.status='searching';
+          fob.classList.add('hidden');
+          document.getElementById('findText').textContent=`Searching for "${state.findMode.target}"...`;
+          fb.classList.remove('hidden');
+        }
+      } else { fb.classList.add('hidden');fob.classList.add('hidden'); }
+    }
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function spawnConfetti(box,W,H){
+  const layer=document.getElementById('boxesLayer');
+  const colors=['#6366F1','#8B5CF6','#EC4899','#10B981','#F59E0B','#06B6D4'];
+  const cx=(box.x+box.width/2)*W, cy=(box.y+box.height/2)*H;
+  for(let i=0;i<16;i++){
+    const c=document.createElement('div');c.className='confetti';
+    c.style.left=cx+'px';c.style.top=cy+'px';
+    c.style.background=colors[i%colors.length];
+    const a=Math.random()*Math.PI*2,d=50+Math.random()*80;
+    c.style.setProperty('--cx',Math.cos(a)*d+'px');
+    c.style.setProperty('--cy',Math.sin(a)*d+'px');
+    c.style.animationDelay=(i*0.03)+'s';
+    layer.appendChild(c);
+    setTimeout(()=>c.remove(),2000);
+  }
+}
+
+// ============ VOICE ============
+function normLabel(sp){sp=sp.toLowerCase().trim();if(SYN[sp])return SYN[sp];if(COCO.includes(sp))return sp;for(const l of COCO)if(l.includes(sp)||sp.includes(l))return l;return null;}
+function plural(l){const ir={person:'people',scissors:'scissors'};if(ir[l])return ir[l];if(/(s|sh|ch)$/.test(l))return l+'es';return l+'s';}
+function art(l){return/^[aeiou]/i.test(l)?'an':'a';}
+function parseCmd(text){
+  const lo=text.toLowerCase();
+  if(/\b(stop|cancel|done|exit)\b/.test(lo))return{type:'stop'};
+  let m=lo.match(/(?:find|locate|where(?:'s| is| are)|search for|look for)(?: a| an| the| my)?\s+([a-z ]+?)(?:\?|$|\.)/);
+  if(m){const l=normLabel(m[1].trim());if(l)return{type:'find',target:l};}
+  m=lo.match(/(?:how many|count|number of)(?: a| an| the| are there)?\s+([a-z ]+?)(?:\?|$|\.)/);
+  if(m){const l=normLabel(m[1].trim());if(l)return{type:'count',target:l};}
+  if(/(what (?:do|can|are) you see|what(?:'s| is) (?:around|here|in front)|describe|tell me what you see|what am i looking at)/.test(lo))return{type:'what'};
+  if(/(where am i|what (?:is|kind of) (?:place|room|scene)|describe (?:the )?(?:scene|place))/.test(lo))return{type:'scene'};
+  return{type:'unknown'};
+}
+function showBubble(text,response){
+  const b=document.getElementById('voiceBubble');
+  b.textContent=text;b.classList.toggle('response',!!response);b.classList.add('show');
+  clearTimeout(b._t);
+  b._t=setTimeout(()=>b.classList.remove('show'), response?3500:1500);
+}
+function runCmd(text){
+  showBubble('"'+text+'"',false);
+  setTimeout(()=>{
+    const cmd=parseCmd(text);
+    const active=[...state.tracks.values()].filter(t=>t.active&&t.missed<=2);
+    const counts={};active.forEach(t=>counts[t.label]=(counts[t.label]||0)+1);
+    let r='';
+    switch(cmd.type){
+      case'stop':state.findMode.active=false;r='Search stopped.';break;
+      case'find':{
+        state.findMode.active=true;state.findMode.target=cmd.target;state.findMode.status='searching';
+        const found=active.find(t=>t.label===cmd.target&&t.confidence>=0.55);
+        if(found){const s=spatialInfo(found.boundingBox);r=`${art(cmd.target)} ${cmd.target} detected ${s.hp==='left'?'to your left':s.hp==='right'?'to your right':'right in front of you'}, about ${s.dm} meters away.`;}
+        else r=`Searching for ${art(cmd.target)} ${cmd.target}. Move the camera around.`;
+        break;
+      }
+      case'count':{const n=counts[cmd.target]||0;r=n===0?`I don't see any ${plural(cmd.target)} in view.`:`I see ${n} ${n===1?cmd.target:plural(cmd.target)}.`;break;}
+      case'what':{
+        const e=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6);
+        if(!e.length){r="I don't see any recognizable objects right now.";break;}
+        const p=e.map(([l,n])=>n===1?`a ${l}`:`${n} ${plural(l)}`);
+        r=p.length===1?`I see ${p[0]}.`:`I see ${p.slice(0,-1).join(', ')}, and ${p[p.length-1]}.`;
+        break;
+      }
+      case'scene':r=state.scene&&state.scene.cat!=='unknown'?`This looks like a ${state.scene.label.toLowerCase()}.`:"I'm still analyzing the scene.";break;
+      default:r=`I can tell you what I see, count objects, find things, or describe the scene. Try "what do you see".`;
+    }
+    showBubble(r,true);
+  },500);
+}
+function toggleMic(e){
+  if(state.listening){stopMic();return;}
+  state.listening=true;
+  document.getElementById('micBtn').classList.add('active');
+  document.getElementById('micIcon').textContent='⏳';
+  document.getElementById('micLabel').textContent='LISTENING';
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(SR){
+    try{
+      const rec=new SR();rec.continuous=false;rec.interimResults=false;rec.lang='en-US';
+      rec.onresult=ev=>{runCmd(ev.results[0][0].transcript);stopMic();};
+      rec.onerror=()=>demoVoice();
+      rec.onend=()=>stopMic();
+      rec.start();showBubble('Listening...',false);return;
+    }catch(e){}
+  }
+  setTimeout(demoVoice,1400);
+}
+function demoVoice(){
+  const demos=['What do you see?','How many people are there?','Find a bottle','Where am I?','Find a chair'];
+  runCmd(demos[Math.floor(Math.random()*demos.length)]);
+  stopMic();
+}
+function stopMic(){state.listening=false;document.getElementById('micBtn').classList.remove('active');document.getElementById('micIcon').textContent='🎤';document.getElementById('micLabel').textContent='ASK AI';}
+
+function switchCam(){state.facing=1-state.facing;}
+function infoAction(){
+  const active=[...state.tracks.values()].filter(t=>t.active&&t.missed<=2);
+  if(!active.length)return;
+  const best=active.reduce((a,b)=>(a.boundingBox.width*a.boundingBox.height>b.boundingBox.width*b.boundingBox.height?a:b));
+  const s=spatialInfo(best.boundingBox);
+  state.lastRes={label:best.label,confidence:Math.round(best.confidence*100)+'%',position:s.hp,distance:`~${s.dm} m`};
+  renderResult();go('result');
+}
+
+// ============ FIND SCREEN ============
+function renderGrid(){
+  const g=document.getElementById('objGrid');g.innerHTML='';
+  QUICK.forEach(o=>{
+    const chip=document.createElement('div');chip.className='obj-chip';
+    chip.innerHTML=`<span class="obj-em">${o.e}</span><span class="obj-nm">${o.n}</span>`;
+    chip.onclick=()=>startSearchWith(o.l);
+    g.appendChild(chip);
+  });
+}
+function onFindInput(e){document.getElementById('findGo').classList.toggle('hidden',!e.target.value.trim());document.getElementById('findGoText').textContent=`Search for "${e.target.value.trim()}"`;}
+function startSearch(){
+  const v=document.getElementById('findInput').value.trim().toLowerCase();
+  const l=normLabel(v)||v;startSearchWith(l);
+}
+function startSearchWith(label){
+  state.findMode.active=true;state.findMode.target=label;state.findMode.status='searching';state.findMode.found=null;
+  go('scanner');
+}
+function voiceSearch(){
+  const btn=document.getElementById('findMic');const box=document.getElementById('listenBox');
+  btn.classList.add('rec');box.classList.add('show');
+  setTimeout(()=>{
+    const picks=['bottle','chair','person','cup','laptop','dog'];const pick=picks[Math.floor(Math.random()*picks.length)];
+    document.getElementById('findInput').value=pick;document.getElementById('findGo').classList.remove('hidden');document.getElementById('findGoText').textContent=`Search for "${pick}"`;
+    btn.classList.remove('rec');box.classList.remove('show');
+  },1600);
+}
+
+// ============ RESULT ============
+function renderResult(){
+  const r=state.lastRes;if(!r)return;
+  const info=DESC[r.label]||`This is a ${r.label}. Detected using the on-device vision model.`;
+  const em=EMOJI[r.label]||'📦';
+  document.getElementById('resultBody').innerHTML=`
+    <div class="hero-card"><div class="hero-em">${em}</div><div class="hero-nm">${r.label.toUpperCase()}</div></div>
+    <div class="card">
+      <div class="row"><span class="row-l">Confidence</span><span class="row-v g">${r.confidence}</span></div>
+      <div class="row"><span class="row-l">Horizontal Position</span><span class="row-v">${r.position.charAt(0).toUpperCase()+r.position.slice(1)}</span></div>
+      <div class="row"><span class="row-l">Approx. Distance</span><span class="row-v">${r.distance}</span></div>
+      <div class="row"><span class="row-l">Tracking ID</span><span class="row-v">#${Math.floor(Math.random()*99)+1}</span></div>
+    </div>
+    <div class="card"><div class="s-name" style="color:var(--accent);font-size:11px;font-weight:700;letter-spacing:1.5px;margin-bottom:8px;">ABOUT THIS OBJECT</div><div class="row-l" style="line-height:1.6;font-size:13px;color:rgba(255,255,255,0.8);">${info}</div></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px;">
+      <button class="btn btn-primary shine">🎯 Keep Tracking</button>
+      <button class="btn btn-ghost">🔎 Find Similar</button>
+      <button class="btn btn-ghost">🔊 Voice Explain</button>
+    </div>
+    <div style="height:30px"></div>
+  `;
+  document.querySelectorAll('#screen-result .btn').forEach(b=>{
+    b.addEventListener('click',function(e){
+      const r=document.createElement('span');r.className='ripple';const rect=this.getBoundingClientRect();const s=Math.max(rect.width,rect.height);r.style.width=r.style.height=s+'px';r.style.left=(e.clientX-rect.left-s/2)+'px';r.style.top=(e.clientY-rect.top-s/2)+'px';this.style.position='relative';this.style.overflow='hidden';this.appendChild(r);setTimeout(()=>r.remove(),600);
+      setTimeout(goBack,300);
+    });
+  });
+}
+
+function setThresh(el,v){
+  state.confidenceThreshold=v;
+  document.querySelectorAll('.preset').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('threshVal').textContent=Math.round(v*100)+'%';
+}
+</script>
+</body>
+</html>

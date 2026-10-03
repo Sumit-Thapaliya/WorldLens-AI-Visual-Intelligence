@@ -36,7 +36,7 @@ data class DetectionResultModel(
  * written to an AtomicReference so JS can poll the latest frame's detections
  * at its own pace (no queue buildup, frame drops are acceptable).
  */
-class InferenceModule(private val reactContext: ReactContext) :
+class InferenceModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     companion object {

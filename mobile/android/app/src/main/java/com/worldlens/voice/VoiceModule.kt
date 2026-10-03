@@ -7,6 +7,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import com.facebook.react.bridge.*
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.util.Locale
 
 /**
@@ -19,7 +20,7 @@ import java.util.Locale
  * Recognized text is emitted as a JS event "voice_result" so the JS layer can
  * parse it into commands (see voiceCommands.ts).
  */
-class VoiceModule(private val reactContext: ReactContext) :
+class VoiceModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     private var speechRecognizer: SpeechRecognizer? = null

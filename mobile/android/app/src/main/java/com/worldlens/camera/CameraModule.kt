@@ -2,7 +2,6 @@ package com.worldlens.camera
 
 import android.content.Context
 import android.util.Log
-import android.util.Size
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
@@ -38,15 +37,15 @@ class CameraModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun startCamera() {
-        startCameraInternal(640, 480, 25)
+        startCameraInternal(640, 480)
     }
 
     @ReactMethod
     fun startCameraWithConfig(width: Int, height: Int, targetFps: Int) {
-        startCameraInternal(width, height, targetFps)
+        startCameraInternal(width, height)
     }
 
-    private fun startCameraInternal(width: Int, height: Int, targetFps: Int) {
+    private fun startCameraInternal(width: Int, height: Int) {
         val activity = currentActivity ?: return
         if (isRunning) return
 
@@ -57,8 +56,9 @@ class CameraModule(private val reactContext: ReactApplicationContext) :
                 cameraProvider = provider
 
                 imageAnalysis = ImageAnalysis.Builder()
-                    .setTargetResolution(Size(width, height))
+                    .setTargetAspectRatio(androidx.camera.core.AspectRatio.RATIO_4_3)
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                     .build()
                     .also {
                         it.setAnalyzer(analysisExecutor) { imageProxy ->

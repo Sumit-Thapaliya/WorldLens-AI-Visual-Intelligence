@@ -1,10 +1,11 @@
 /**
  * React hook for voice interaction.
  * Wraps native speech recognition / TTS (Android SpeechRecognizer + TextToSpeech via Kotlin)
- * with a JS fallback for development.
+ * with robust error handling and fallback for emulators.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform, PermissionsAndroid, DeviceEventEmitter } from 'react-native';
 import {
   parseVoiceCommand,
   generateWhatDoYouSeeResponse,
@@ -16,10 +17,10 @@ import {
   ParsedVoiceCommand,
   getSupportedLabels,
 } from '../services/voice/voiceCommands';
-import { TrackedObject, ObjectCount, FindModeState } from '../types/Detection';
+import { TrackedObject, ObjectCount } from '../types/Detection';
 import { ScenePrediction } from '../types/Scene';
 
-type VoiceStatus = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
+export type VoiceStatus = 'idle' | 'listening' | 'processing' | 'speaking' | 'error';
 
 interface UseVoiceOptions {
   trackedObjects: TrackedObject[];
@@ -37,7 +38,7 @@ interface UseVoiceResult {
   transcript: string;
   supportedLabels: string[];
   error: string | null;
-  startListening: () => void;
+  startListening: () => Promise<void>;
   stopListening: () => void;
   speak: (text: string) => void;
   processCommand: (text: string) => string;
@@ -57,7 +58,6 @@ export function useVoice(options: UseVoiceOptions): UseVoiceResult {
   const nativeRef = useRef<any>(null);
 
   useEffect(() => {
-    // Bind to native voice module if available (Kotlin VoiceModule)
     try {
       const { NativeModules } = require('react-native');
       nativeRef.current = NativeModules?.VoiceModule ?? null;
@@ -72,7 +72,7 @@ export function useVoice(options: UseVoiceOptions): UseVoiceResult {
     if (nativeRef.current?.speak) {
       nativeRef.current.speak(text);
     }
-    // Browser TTS fallback
+    // Web TTS fallback
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         const utterance = new (window as any).SpeechSynthesisUtterance(text);
@@ -81,7 +81,9 @@ export function useVoice(options: UseVoiceOptions): UseVoiceResult {
         // ignore
       }
     }
-    setTimeout(() => setStatus('idle'), Math.max(1000, text.length * 60));
+    setTimeout(() => {
+      setStatus((s) => (s === 'speaking' ? 'idle' : s));
+    }, Math.max(1200, text.length * 65));
   }, []);
 
   const processCommand = useCallback(
@@ -108,7 +110,7 @@ export function useVoice(options: UseVoiceOptions): UseVoiceResult {
               ? generateFoundResponse(found)
               : generateSearchingResponse(cmd.targetLabel);
           } else {
-            response = `I can look for common objects like bottles, chairs, people, or cars. Just say "find" followed by the object name.`;
+            response = 'I can look for common objects like bottles, chairs, people, or cups. Just say "find" followed by the object name.';
           }
           break;
         case 'describe_scene':
@@ -122,7 +124,7 @@ export function useVoice(options: UseVoiceOptions): UseVoiceResult {
           break;
         case 'unknown':
         default:
-          response = `You said "${text}". I can tell you what I see, count objects, find things, or describe the scene. Try saying "what do you see" or "find a bottle".`;
+          response = `You said "${text}". I can tell you what I see, count objects, or search. Try saying "what do you see" or "find a cup".`;
       }
 
       speak(response);
@@ -131,24 +133,88 @@ export function useVoice(options: UseVoiceOptions): UseVoiceResult {
     [objectCounts, trackedObjects, scene, onFindObject, onStopFind, speak]
   );
 
-  const startListening = useCallback(() => {
-    setError(null);
-    setStatus('listening');
-    setTranscript('');
-    if (nativeRef.current?.startListening) {
-      nativeRef.current.startListening((text: string) => {
+  // Setup native event listeners
+  useEffect(() => {
+    const resultSub = DeviceEventEmitter.addListener('voice_result', (text: string) => {
+      if (text) {
         setTranscript(text);
         processCommand(text);
-      });
+      }
+    });
+
+    const partialSub = DeviceEventEmitter.addListener('voice_partial', (text: string) => {
+      if (text) {
+        setTranscript(text);
+      }
+    });
+
+    const stateSub = DeviceEventEmitter.addListener('voice_state', (state: string) => {
+      if (state === 'listening' || state === 'processing' || state === 'speaking' || state === 'idle') {
+        setStatus(state as VoiceStatus);
+      }
+    });
+
+    const errorSub = DeviceEventEmitter.addListener('voice_error', (event: any) => {
+      const errMsg = typeof event === 'string' ? event : event?.error || 'Voice recognition error';
+      setError(errMsg);
+      setStatus('idle');
+    });
+
+    return () => {
+      resultSub.remove();
+      partialSub.remove();
+      stateSub.remove();
+      errorSub.remove();
+    };
+  }, [processCommand]);
+
+  const requestAudioPermission = async (): Promise<boolean> => {
+    if (Platform.OS !== 'android') return true;
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        {
+          title: 'Microphone Permission',
+          message: 'WorldLens needs microphone access to understand voice commands.',
+          buttonPositive: 'Allow',
+          buttonNegative: 'Deny',
+        }
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    } catch {
+      return false;
+    }
+  };
+
+  const startListening = useCallback(async () => {
+    setError(null);
+    setTranscript('');
+
+    const hasPermission = await requestAudioPermission();
+    if (!hasPermission) {
+      setError('Microphone permission denied. Enable it in app settings.');
+      setStatus('idle');
+      return;
+    }
+
+    setStatus('listening');
+    if (nativeRef.current?.startListening) {
+      try {
+        nativeRef.current.startListening();
+      } catch (err: any) {
+        setError(err?.message ?? 'Failed to start speech recognition');
+        setStatus('idle');
+      }
     } else {
-      // Fallback - will wait for injectText
       console.log('[Voice] Native speech recognition unavailable - use injectText() for testing');
     }
-  }, [processCommand]);
+  }, []);
 
   const stopListening = useCallback(() => {
     if (nativeRef.current?.stopListening) {
-      nativeRef.current.stopListening();
+      try {
+        nativeRef.current.stopListening();
+      } catch {}
     }
     setStatus('idle');
   }, []);

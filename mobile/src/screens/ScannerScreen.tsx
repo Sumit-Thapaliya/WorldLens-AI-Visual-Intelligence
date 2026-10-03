@@ -16,6 +16,7 @@ import {
   Platform,
 } from 'react-native';
 import { CameraOverlay } from '../components/CameraOverlay';
+import { CameraPreview } from '../components/CameraPreview';
 import { DetectionBox } from '../components/DetectionBox';
 import { useCamera } from '../hooks/useCamera';
 import { useDetection } from '../hooks/useDetection';
@@ -85,6 +86,13 @@ export const ScannerScreen: React.FC<Props> = ({ initialFindLabel, onBack, onOpe
     return () => { stopDetection(); stopCamera(); if (frameLoopRef.current) cancelAnimationFrame(frameLoopRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (voice.error) {
+      showToast(voice.error);
+      setListening(false);
+    }
+  }, [voice.error]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -159,21 +167,30 @@ export const ScannerScreen: React.FC<Props> = ({ initialFindLabel, onBack, onOpe
     }
   };
 
-  const toggleMic = (force?: boolean) => {
+  const toggleMic = async (force?: boolean) => {
     const next = typeof force === 'boolean' ? force : !listening;
     setListening(next);
-    if (next) { voice.startListening(); showToast('🎙  LISTENING'); } else { voice.stopListening(); }
+    if (next) {
+      showToast('🎙  LISTENING');
+      await voice.startListening();
+    } else {
+      voice.stopListening();
+    }
   };
 
   const confPercent = sheetObj ? Math.round(sheetObj.confidence * 100) : 0;
 
   return (
     <View style={styles.container}>
-      {/* Camera background placeholder */}
-      <View style={styles.camBg}>
-        <View style={styles.camGrid} />
-        <View style={styles.centerCross} />
-      </View>
+      {/* Live Camera Preview */}
+      {Platform.OS === 'android' && isCameraActive && permission === 'granted' ? (
+        <CameraPreview style={StyleSheet.absoluteFill} facing={facing} />
+      ) : (
+        <View style={styles.camBg}>
+          <View style={styles.camGrid} />
+          <View style={styles.centerCross} />
+        </View>
+      )}
 
       {/* Detection boxes layer */}
       <View style={styles.boxLayer} pointerEvents="box-none">
@@ -296,10 +313,14 @@ export const ScannerScreen: React.FC<Props> = ({ initialFindLabel, onBack, onOpe
       </View>
 
       {/* Mic bubble */}
-      {listening && (
+      {(listening || voice.isListening || voice.status === 'listening' || voice.status === 'processing') && (
         <View style={styles.micBubble}>
-          <Text style={styles.micLbl}>●  LISTENING</Text>
-          <Text style={styles.micTxt}>"What do you see?"</Text>
+          <Text style={styles.micLbl}>
+            {voice.status === 'processing' ? '●  PROCESSING' : '●  LISTENING'}
+          </Text>
+          <Text style={styles.micTxt}>
+            {voice.transcript ? `"${voice.transcript}"` : '"What do you see?" or "Find cup"'}
+          </Text>
         </View>
       )}
 
@@ -416,7 +437,7 @@ const styles = StyleSheet.create({
   backBtn: { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 30, left: 16, width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(11,17,24,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
   switchBtn: { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 30, right: 16, width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(11,17,24,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
   backTxt: { color: theme.colors.metal, fontSize: 20 },
-  chipsRow: { position: 'absolute', top: 330, left: 0, right: 0, maxHeight: 60 },
+  chipsRow: { position: 'absolute', top: 350, left: 0, right: 0, maxHeight: 60 },
   objChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: 'rgba(11,17,24,0.7)', borderWidth: 1, borderColor: theme.colors.border },
   objEmj: { fontSize: 13 },
   objName: { color: theme.colors.metal, fontSize: 11, fontWeight: '600', textTransform: 'capitalize' },

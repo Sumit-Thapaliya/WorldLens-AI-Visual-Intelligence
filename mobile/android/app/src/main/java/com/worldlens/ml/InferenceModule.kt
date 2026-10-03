@@ -12,6 +12,7 @@ import java.io.File
 import java.nio.FloatBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Data class holding a single detection result returned by the model.
@@ -71,8 +72,17 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
     private var ortEnv: Any? = null
     private var ortSession: Any? = null
 
-    @Volatile
-    private var latestDetections: WritableArray = Arguments.createArray()
+    /**
+     * Latest detections, kept as PLAIN KOTLIN DATA - never as a WritableArray/WritableMap.
+     *
+     * Why: RN's putArray/pushArray *consume* the container they are given (ownership is
+     * transferred to the native side). Once consumed, reusing that same instance throws
+     * "Array already consumed" in WritableNativeMap.putArray. Since JS polls
+     * getLatestDetections() every frame, storing a Writable* here crashed on the 2nd poll.
+     * An AtomicReference also gives us a safe hand-off between the camera thread
+     * (writer) and the JS thread (reader).
+     */
+    private val latestDetections = AtomicReference<List<DetectionResultModel>>(emptyList())
 
     override fun getName(): String = "InferenceModule"
 
@@ -121,21 +131,10 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
             // 2. Run inference (placeholder returning empty set)
             val detections = runInference(/* input */)
 
-            // 3. Write to JS-readable array
-            val arr = Arguments.createArray()
-            for (d in detections) {
-                arr.pushMap(Arguments.createMap().apply {
-                    putString("label", d.label)
-                    putDouble("confidence", d.confidence.toDouble())
-                    putMap("boundingBox", Arguments.createMap().apply {
-                        putDouble("x", d.box.left.toDouble())
-                        putDouble("y", d.box.top.toDouble())
-                        putDouble("width", d.box.width().toDouble())
-                        putDouble("height", d.box.height().toDouble())
-                    })
-                })
-            }
-            latestDetections = arr
+            // 3. Publish the plain-data snapshot. The Writable* graph JS needs is built
+            //    fresh inside getLatestDetections() on every call, so nothing here is
+            //    ever handed to JS twice.
+            latestDetections.set(detections)
         } catch (e: Exception) {
             Log.w(TAG, "Frame analysis error", e)
         } finally {
@@ -150,8 +149,30 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
      */
     @ReactMethod
     fun getLatestDetections(frameData: ReadableMap, promise: Promise) {
+        val snapshot = latestDetections.get()
+
+        // Build a BRAND-NEW writable graph for every call. Each array/map below is handed
+        // to the bridge exactly once, which is the only safe way to use Writable* types.
+        val objects = Arguments.createArray()
+        for ((index, d) in snapshot.withIndex()) {
+            objects.pushMap(
+                Arguments.createMap().apply {
+                    // `id` is required by the DetectedObject TS type
+                    putString("id", "det-$index")
+                    putString("label", d.label)
+                    putDouble("confidence", d.confidence.toDouble())
+                    putMap("boundingBox", Arguments.createMap().apply {
+                        putDouble("x", d.box.left.toDouble())
+                        putDouble("y", d.box.top.toDouble())
+                        putDouble("width", d.box.width().toDouble())
+                        putDouble("height", d.box.height().toDouble())
+                    })
+                }
+            )
+        }
+
         val result = Arguments.createMap().apply {
-            putArray("objects", latestDetections)
+            putArray("objects", objects) // consumed here, and this instance is used once
             putDouble("inferenceTimeMs", lastInferenceMs.get().toDouble())
             putDouble("fps", fpsCounter.currentFps())
         }
@@ -178,6 +199,7 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
     fun release(promise: Promise) {
         // Close session/env if real ONNX objects exist
         isInitialized.set(false)
+        latestDetections.set(emptyList())
         instance = null
         promise.resolve(true)
     }

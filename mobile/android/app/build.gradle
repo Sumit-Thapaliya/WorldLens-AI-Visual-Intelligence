@@ -38,7 +38,12 @@ android {
 
     sourceSets {
         main {
-            assets.srcDirs = ["../../assets"]
+            // IMPORTANT: assigning assets.srcDirs REPLACES the default source dir.
+            // Listing "src/main/assets" (which holds index.android.bundle, the
+            // offline JS bundle) is therefore mandatory - otherwise the bundle is
+            // never packaged into the APK and the app dies with
+            // "Unable to load script..." whenever Metro is unreachable.
+            assets.srcDirs = ["src/main/assets", "../../assets"]
         }
     }
 

@@ -2,7 +2,7 @@
   "name": "worldlens",
   "version": "1.0.0",
   "description": "WorldLens - AI Reality Scanner. On-device real-time object detection, tracking, and scene understanding.",
-  "main": "App.tsx",
+  "main": "index.js",
   "private": true,
   "scripts": {
     "start": "react-native start",
@@ -11,6 +11,7 @@
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
     "clean": "cd android && ./gradlew clean",
+    "bundle:android": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle",
     "test": "jest"
   },
   "dependencies": {

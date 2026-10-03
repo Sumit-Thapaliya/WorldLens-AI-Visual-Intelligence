@@ -30,10 +30,8 @@ class NativeModulePackage : ReactPackage {
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
-        // Custom native view managers (e.g., a CameraPreviewView) can be registered here.
-        // For the first version we keep preview management inside CameraModule and use
-        // a standard React Native <View> in JS; a native view manager can be added later
-        // if zero-copy frame dispatch is needed for higher FPS.
-        return emptyList()
+        return listOf(
+            com.worldlens.camera.CameraPreviewViewManager()
+        )
     }
 }

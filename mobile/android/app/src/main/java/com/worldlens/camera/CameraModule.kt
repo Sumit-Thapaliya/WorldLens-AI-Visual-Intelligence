@@ -1,11 +1,10 @@
 package com.worldlens.camera
 
-import android.annotation.SuppressLint
 import android.content.Context
+import android.util.Log
 import android.util.Size
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.facebook.react.bridge.*
@@ -15,23 +14,19 @@ import java.util.concurrent.Executors
 
 /**
  * CameraModule - Kotlin native camera module using CameraX.
- *
- * Responsible for:
- *  - Binding camera preview to a Surface/PreviewView
- *  - Configuring analysis frame rate and resolution
- *  - Forwarding frames to the InferenceModule for on-device detection
- *
- * Frame analysis runs on a background executor so inference doesn't block the UI.
  */
 class CameraModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
+
+    companion object {
+        private const val TAG = "WorldLens-CameraModule"
+    }
 
     private val analysisExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "WorldLens-CameraAnalysis").apply { isDaemon = true }
     }
 
     private var cameraProvider: ProcessCameraProvider? = null
-    private var preview: Preview? = null
     private var imageAnalysis: ImageAnalysis? = null
     private var camera: Camera? = null
     private var lensFacing = CameraSelector.LENS_FACING_BACK
@@ -41,12 +36,17 @@ class CameraModule(private val reactContext: ReactApplicationContext) :
 
     override fun getName(): String = "CameraModule"
 
-    /**
-     * Start the camera with the given lifecycle owner (current Activity).
-     * Frames are sent to the linked InferenceModule.
-     */
     @ReactMethod
-    fun startCamera(width: Int = 640, height: Int = 480, targetFps: Int = 25) {
+    fun startCamera() {
+        startCameraInternal(640, 480, 25)
+    }
+
+    @ReactMethod
+    fun startCameraWithConfig(width: Int, height: Int, targetFps: Int) {
+        startCameraInternal(width, height, targetFps)
+    }
+
+    private fun startCameraInternal(width: Int, height: Int, targetFps: Int) {
         val activity = currentActivity ?: return
         if (isRunning) return
 
@@ -56,12 +56,6 @@ class CameraModule(private val reactContext: ReactApplicationContext) :
                 val provider = cameraProviderFuture.get()
                 cameraProvider = provider
 
-                // Preview use case
-                preview = Preview.Builder()
-                    .setTargetResolution(Size(width, height))
-                    .build()
-
-                // ImageAnalysis use case (feeds ML model)
                 imageAnalysis = ImageAnalysis.Builder()
                     .setTargetResolution(Size(width, height))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -69,23 +63,32 @@ class CameraModule(private val reactContext: ReactApplicationContext) :
                     .also {
                         it.setAnalyzer(analysisExecutor) { imageProxy ->
                             try {
-                                // Forward frame to the ML inference module
                                 InferenceModule.instance?.analyzeFrame(imageProxy)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Analysis error", e)
                             } finally {
                                 imageProxy.close()
                             }
                         }
                     }
 
-                val cameraSelector = CameraSelector.Builder()
-                    .requireLensFacing(lensFacing)
-                    .build()
+                val targetSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+                val finalSelector = when {
+                    provider.hasCamera(targetSelector) -> targetSelector
+                    provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
+                    provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
+                    else -> null
+                }
+
+                if (finalSelector == null) {
+                    emitEvent("camera_error", "No camera available on this device")
+                    return@addListener
+                }
 
                 provider.unbindAll()
                 camera = provider.bindToLifecycle(
                     activity as LifecycleOwner,
-                    cameraSelector,
-                    preview,
+                    finalSelector,
                     imageAnalysis
                 )
                 isRunning = true
@@ -98,9 +101,13 @@ class CameraModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun stopCamera() {
-        cameraProvider?.unbindAll()
-        camera = null
-        isRunning = false
+        UiThreadUtil.runOnUiThread {
+            try {
+                cameraProvider?.unbindAll()
+            } catch (_: Exception) {}
+            camera = null
+            isRunning = false
+        }
     }
 
     @ReactMethod
@@ -120,6 +127,7 @@ class CameraModule(private val reactContext: ReactApplicationContext) :
     }
 
     private fun emitEvent(eventName: String, message: String?) {
+        if (!reactContext.hasActiveReactInstance()) return
         val params = Arguments.createMap().apply {
             putString("message", message)
         }

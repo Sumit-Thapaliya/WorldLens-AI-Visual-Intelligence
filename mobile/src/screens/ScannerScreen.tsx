@@ -14,6 +14,7 @@ import {
   Animated,
   ScrollView,
   Platform,
+  DeviceEventEmitter,
 } from 'react-native';
 import { CameraOverlay } from '../components/CameraOverlay';
 import { CameraPreview } from '../components/CameraPreview';
@@ -70,9 +71,26 @@ export const ScannerScreen: React.FC<Props> = ({ initialFindLabel, onBack, onOpe
   const { permission, isCameraActive, facing, startCamera, stopCamera, switchCamera, handleFrame, error: cameraError } =
     useCamera({ autoStart: false });
   const {
-    isInitialized, isRunning, currentDetections, trackedObjects, objectCounts, stats,
+    isInitialized, modelMissing, isRunning, currentDetections, trackedObjects, objectCounts, stats,
     startDetection, stopDetection, processFrame,
   } = useDetection({ enabled: false });
+
+  /**
+   * Errors reported by the native camera view. The camera used to fail silently - a black
+   * preview and nothing else - so these events are what turn an invisible failure into a
+   * message on screen.
+   */
+  const [cameraIssue, setCameraIssue] = useState<string | null>(null);
+  useEffect(() => {
+    const onError = DeviceEventEmitter.addListener('camera_error', (e: any) => {
+      setCameraIssue(e?.message ?? 'Camera error');
+    });
+    const onReady = DeviceEventEmitter.addListener('camera_ready', () => setCameraIssue(null));
+    return () => {
+      onError.remove();
+      onReady.remove();
+    };
+  }, []);
 
   const voice = useVoice({
     trackedObjects, objectCounts, scene,
@@ -189,6 +207,16 @@ export const ScannerScreen: React.FC<Props> = ({ initialFindLabel, onBack, onOpe
         <View style={styles.camBg}>
           <View style={styles.camGrid} />
           <View style={styles.centerCross} />
+        </View>
+      )}
+
+      {/* Honest status: with no model there are no real detections, so say so rather than
+          showing an empty screen or inventing objects. */}
+      {modelMissing && (
+        <View style={styles.modelBanner} pointerEvents="none">
+          <Text style={styles.modelBannerText}>
+            NO AI MODEL · run ai\setup_model.bat then rebuild
+          </Text>
         </View>
       )}
 
@@ -374,8 +402,8 @@ export const ScannerScreen: React.FC<Props> = ({ initialFindLabel, onBack, onOpe
         </>
       )}
 
-      {cameraError && (
-        <View style={styles.errorBanner}><Text style={styles.errorText}>{cameraError}</Text></View>
+      {(cameraError || cameraIssue) && (
+        <View style={styles.errorBanner}><Text style={styles.errorText}>{cameraError || cameraIssue}</Text></View>
       )}
     </View>
   );
@@ -506,4 +534,23 @@ const styles = StyleSheet.create({
   btnAnTxt: { color: theme.colors.cyan, fontSize: 12, fontWeight: '800', letterSpacing: 1, fontFamily: 'Courier' },
   errorBanner: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: theme.colors.red, padding: 12 },
   errorText: { color: '#fff', fontSize: 13, textAlign: 'center' },
+  modelBanner: {
+    position: 'absolute',
+    top: 92,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(178,34,34,0.92)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    zIndex: 30,
+  },
+  modelBannerText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    fontFamily: 'Courier',
+    letterSpacing: 0.5,
+  },
 });

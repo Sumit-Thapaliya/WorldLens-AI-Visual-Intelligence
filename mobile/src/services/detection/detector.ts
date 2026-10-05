@@ -191,24 +191,59 @@ export function createNativeDetector(
     const NativeInference = NativeModules?.InferenceModule;
     if (!NativeInference) return null;
 
-    // Native module exists; wrap it
+    // Native module exists; wrap it.
+    let nativeConfig = { ...config };
+    let lastStats: PerformanceStats = {
+      fps: 0,
+      inferenceTimeMs: 0,
+      frameProcessingMs: 0,
+      modelName: config.modelName,
+    };
+
     return {
       async initialize() {
-        return NativeInference.initialize(config);
+        // THIS is what actually loads the .onnx session in Kotlin. Until it runs the native
+        // module discards every camera frame (analyzeFrame() returns early), so nothing may be
+        // decided before this promise resolves and reports whether a model loaded.
+        const ok = await NativeInference.initialize(nativeConfig);
+        return ok === true;
       },
       async detectOnFrame(frameData: FrameData) {
-        // In real Android integration, frame bytes are passed via native view ref;
-        // here we invoke the latest result from the native frame processor.
-        return NativeInference.getLatestDetections(frameData);
+        // Kotlin already ran inference on the CameraX analysis thread; we only poll the latest
+        // result here. Everything is normalised so the UI always receives plain data.
+        const raw = await NativeInference.getLatestDetections(frameData);
+        const objects: DetectedObject[] = Array.isArray(raw?.objects) ? raw.objects : [];
+        const inferenceTimeMs =
+          typeof raw?.inferenceTimeMs === 'number' ? raw.inferenceTimeMs : 0;
+        const fps = typeof raw?.fps === 'number' ? raw.fps : 0;
+
+        lastStats = {
+          fps,
+          inferenceTimeMs,
+          frameProcessingMs: inferenceTimeMs,
+          modelName: nativeConfig.modelName,
+        };
+
+        return {
+          objects,
+          trackedObjects: [],
+          counts: [],
+          inferenceTimeMs,
+          timestamp: frameData.timestamp,
+        };
       },
       updateConfig(partial: Partial<DetectorConfig>) {
-        NativeInference.updateConfig({ ...config, ...partial });
+        nativeConfig = { ...nativeConfig, ...partial };
+        NativeInference.updateConfig(nativeConfig);
       },
       getConfig() {
-        return { ...config };
+        return { ...nativeConfig };
       },
       getStats() {
-        return NativeInference.getStats();
+        // MUST stay synchronous: useDetection() assigns this straight into React state, and
+        // the native getStats() is promise-based. Returning that promise made every stats
+        // field undefined. We serve the values captured on the last frame instead.
+        return { ...lastStats };
       },
       async release() {
         return NativeInference.release();
@@ -223,18 +258,26 @@ export function createNativeDetector(
 }
 
 /**
- * Master switch for the native detector.
- *  - true  (default): use the Kotlin InferenceModule whenever it has actually loaded an
- *    .onnx model from assets; otherwise fall back to the mock detector automatically.
- *  - false: always use the mock detector (handy while iterating on UI).
+ * Kept for API compatibility. The detector no longer switches on this flag.
  */
 export const NATIVE_MODEL_AVAILABLE = true;
 
 /**
- * Synchronous probe: "native module present AND an .onnx model loaded?".
- * `isModelLoaded()` is declared with isBlockingSynchronousMethod in InferenceModule.kt, so it
- * returns a value directly without awaiting. Any error (e.g. an older APK that predates the
- * method) yields false, so callers safely fall back to the mock detector.
+ * Dev-only switch for the SIMULATED detector. It must stay false.
+ *
+ * Why this exists at all: the mock used to be the automatic fallback whenever the native model
+ * had not been loaded *yet*. Because `isModelLoaded()` is only ever true after initialize()
+ * has run, that check was always false at selection time - so the app picked the mock, never
+ * initialised the real model, and showed invented objects forever. Simulated detections are
+ * now produced only when this flag is explicitly turned on.
+ */
+export const ENABLE_MOCK_DETECTOR = false;
+
+/**
+ * Synchronous probe: "has the native module already loaded an .onnx model?".
+ *
+ * Only meaningful AFTER initialize() has resolved. Never use this to choose between the native
+ * and the mock detector - that is exactly what broke real detections. Status/diagnostics only.
  */
 export function nativeModelLoaded(): boolean {
   try {
@@ -248,19 +291,103 @@ export function nativeModelLoaded(): boolean {
 }
 
 /**
- * Create the best available detector.
- * Native (real ONNX inference) when a model is shipped, mock otherwise - so the UI always
- * has something to render instead of an empty screen.
+ * Human-readable model status ("loaded:model.quant.onnx" / "not_loaded"), or null when the
+ * native module is not present at all. Useful for on-screen diagnostics.
+ */
+export function nativeModelStatus(): string | null {
+  try {
+    const { NativeModules } = require('react-native');
+    const mod = NativeModules?.InferenceModule;
+    if (!mod || typeof mod.getModelStatus !== 'function') return null;
+    return mod.getModelStatus();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when nothing can produce real detections: no native module, or a native module with no
+ * usable .onnx model in assets/models/object_detector/.
+ */
+export function isModelMissing(): boolean {
+  const native = createNativeDetector();
+  if (!native) return true;
+  return !nativeModelLoaded();
+}
+
+/**
+ * Honest empty detector: a complete DetectorHandle that reports ZERO objects.
+ *
+ * Used when no real model is available and the mock flag is off. It reports nothing rather
+ * than inventing something, so a broken or missing model can never masquerade as a working one.
+ */
+export function createEmptyDetector(
+  config: DetectorConfig = DEFAULT_DETECTOR_CONFIG
+): DetectorHandle {
+  let currentConfig = { ...config };
+
+  return {
+    async initialize() {
+      console.warn(
+        '[WorldLens] no .onnx model in assets/models/object_detector - reporting zero objects ' +
+          '(no simulated data). Run ai/setup_model.bat and rebuild.'
+      );
+      return false;
+    },
+    async detectOnFrame(frameData: FrameData): Promise<DetectionResult> {
+      return {
+        objects: [],
+        trackedObjects: [],
+        counts: [],
+        inferenceTimeMs: 0,
+        timestamp: frameData.timestamp,
+      };
+    },
+    updateConfig(partial: Partial<DetectorConfig>) {
+      currentConfig = { ...currentConfig, ...partial };
+    },
+    getConfig() {
+      return { ...currentConfig };
+    },
+    getStats(): PerformanceStats {
+      return {
+        fps: 0,
+        inferenceTimeMs: 0,
+        frameProcessingMs: 0,
+        modelName: currentConfig.modelName,
+      };
+    },
+    async release() {},
+    isNativeAvailable() {
+      return false;
+    },
+  };
+}
+
+/**
+ * Choose the detector to run.
+ *
+ * Order is deliberately simple now:
+ *   1. the native ONNX module whenever the native module is present - it loads the model
+ *      itself and reports honestly whether that worked;
+ *   2. simulated detections ONLY when ENABLE_MOCK_DETECTOR is explicitly true;
+ *   3. otherwise an empty detector that reports nothing.
+ *
+ * Step 1 must NOT be gated on nativeModelLoaded(): that value is false until initialize() has
+ * run, so gating on it meant the real model never got a chance to load.
  */
 export function createDetector(config: DetectorConfig = DEFAULT_DETECTOR_CONFIG): DetectorHandle {
   const native = createNativeDetector(config);
-  if (native && NATIVE_MODEL_AVAILABLE && nativeModelLoaded()) {
+  if (native) {
     console.log('[WorldLens] detector: native ONNX inference');
     return native;
   }
 
-  console.log(
-    '[WorldLens] detector: mock (no .onnx model in assets yet - see SETUP_NATIVE.md)'
-  );
-  return createMockDetector(config);
+  if (ENABLE_MOCK_DETECTOR) {
+    console.warn('[WorldLens] detector: MOCK - simulated data, dev flag is ON');
+    return createMockDetector(config);
+  }
+
+  console.warn('[WorldLens] detector: native InferenceModule missing - reporting zero objects.');
+  return createEmptyDetector(config);
 }

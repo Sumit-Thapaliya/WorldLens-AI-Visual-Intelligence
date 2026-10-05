@@ -12,7 +12,9 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import com.facebook.react.bridge.*
 import java.nio.FloatBuffer
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -50,11 +52,21 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
         private const val ASSET_DIR = "models/object_detector"
         private const val LABELS_FILE = "labels.txt"
 
-        /** Any one of these inside assets/models/object_detector/ will be loaded. */
+        /**
+         * Any of these inside assets/models/object_detector/ can be loaded, in this order.
+         *
+         * ORDER IS DELIBERATE: the plain float torchvision export comes first.
+         * `model.quant.onnx` / `ssdlite_int8.onnx` are outputs of onnxruntime's
+         * quantize_dynamic with Conv included, which produces a heavily rewritten graph
+         * (3000+ nodes, hundreds of Constant/NonZero/GatherND/TopK nodes). Desktop ORT loads
+         * it fine, but onnxruntime-android 1.16.3 aborts the whole process inside
+         * libonnxruntime.so while creating a session for it on a Samsung A24 / Android 16.
+         * They stay in the list as fallbacks, behind the model known to load everywhere.
+         */
         private val MODEL_CANDIDATES = listOf(
+            "ssdlite.onnx",
             "model.quant.onnx",
             "ssdlite_int8.onnx",
-            "ssdlite.onnx",
             "ssdlite_mobilenet_v3.onnx",
             "yolov5n.onnx"
         )
@@ -89,6 +101,25 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
      */
     private val latestDetections = AtomicReference<List<DetectionResultModel>>(emptyList())
 
+    /**
+     * Guards ortSession between the camera thread and the JS thread.
+     *
+     * WHY THIS EXISTS - it was a real crash (SIGSEGV, "Cause: null pointer dereference", on the
+     * WorldLens-Camer thread inside libonnxruntime). analyzeFrame() runs on the CameraX analysis
+     * thread and holds the session for the whole duration of a native runInference() call, while
+     * release() runs on the JS thread when the scanner screen unmounts (e.g. right after a
+     * capture) and calls session.close(). Nothing serialised the two:
+     *
+     *   1. camera thread: grabs the session, enters runInference()
+     *   2. JS thread:     release() -> ortSession.close()  (frees it natively)
+     *   3. camera thread: still inside runInference(), using freed memory
+     *
+     * Step 3 is a use-after-free inside libonnxruntime and it kills the process outright - not
+     * even catchable from Java. The camera keeps delivering frames for a moment after unbind(),
+     * which is exactly the window this fires in.
+     */
+    private val sessionLock = ReentrantLock()
+
     @Volatile
     private var confidenceThreshold = CONFIDENCE_THRESHOLD_DEFAULT
 
@@ -117,6 +148,13 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
 
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
+
+    /**
+     * Held for the lifetime of the session on purpose. ORT requires the SessionOptions that
+     * built a session to stay alive as long as it does; otherwise the native session can be
+     * left with a dangling pointer once the options object is garbage collected.
+     */
+    private var ortSessionOptions: OrtSession.SessionOptions? = null
 
     override fun getName(): String = "InferenceModule"
 
@@ -161,42 +199,22 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
      * Loads the ONNX session. Returns false (instead of throwing) when no model is present so
      * the app keeps working with the JS mock detector.
      */
-    private fun loadSession(): Boolean {
-        if (modelLoaded && ortSession != null) return true
-
-        val assets = reactContext.assets
-
-        // 1. which model file do we actually have?
-        var chosen: String? = null
-        for (candidate in MODEL_CANDIDATES) {
-            try {
-                assets.open("$ASSET_DIR/$candidate").close()
-                chosen = candidate
-                break
-            } catch (_: Exception) {
-                // not present - try the next candidate
-            }
-        }
-        if (chosen == null) {
-            Log.w(
-                TAG,
-                "No ONNX model found in assets/$ASSET_DIR/ (looked for $MODEL_CANDIDATES). " +
-                    "Run ai/scripts/convert_model.py and drop the .onnx file there. " +
-                    "Meanwhile the app uses the JS mock detector."
-            )
-            return false
-        }
-
-        // 2. labels
-        labels = loadLabels()
-        Log.i(TAG, "Labels loaded: ${labels.size}")
-
-        // 3. session
-        val modelBytes = assets.open("$ASSET_DIR/$chosen").readBytes()
-        val env = OrtEnvironment.getEnvironment()
+    /**
+     * Creates an OrtSession with deliberately conservative settings.
+     *
+     * Returns null instead of throwing, so the caller can fall through to the next candidate
+     * model file. It can only survive Java-level failures - a native abort inside
+     * libonnxruntime.so kills the process outright, which is exactly why the settings used
+     * here (CPU only, BASIC_OPT) are picked to avoid triggering one.
+     */
+    private fun createSessionSafely(
+        env: OrtEnvironment,
+        name: String,
+        modelBytes: ByteArray
+    ): OrtSession? {
         val options = OrtSession.SessionOptions()
         try {
-            options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
         } catch (e: Exception) {
             Log.w(TAG, "Could not set optimization level: ${e.message}")
         }
@@ -205,23 +223,86 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             Log.w(TAG, "Could not set thread count: ${e.message}")
         }
-        // NNAPI is a big win on supported devices but is not available everywhere.
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            try {
-                options.addNnapi()
-                Log.i(TAG, "NNAPI execution provider enabled")
-            } catch (e: Exception) {
-                Log.i(TAG, "NNAPI unavailable, using CPU: ${e.message}")
-            }
-        }
 
-        val session = env.createSession(modelBytes, options)
+        return try {
+            val session = env.createSession(modelBytes, options)
+            // Must outlive the session - see ortSessionOptions.
+            ortSessionOptions = options
+            Log.i(TAG, "Session created for $name (${modelBytes.size / 1024} KB)")
+            session
+        } catch (e: Exception) {
+            Log.e(TAG, "Session creation failed for $name: ${e.message}", e)
+            try {
+                options.close()
+            } catch (_: Exception) {
+                // ignore - nothing more we can do about a failed options object
+            }
+            null
+        }
+    }
+
+    private fun loadSession(): Boolean {
+        if (modelLoaded && ortSession != null) return true
+
+        val assets = reactContext.assets
+
+        // 1. labels
+        labels = loadLabels()
+        Log.i(TAG, "Labels loaded: ${labels.size}")
+
+        // 2. session - walk the candidates and keep the FIRST one that really works.
+        //
+        // Two crash-hardening changes live here, both from a real SIGABRT on a Samsung A24 /
+        // Android 16 running onnxruntime-android 1.16.3:
+        //
+        //   a) No NNAPI execution provider. It used to be added on Android 10+, and it was
+        //      aborting the process inside libonnxruntime.so during session creation. NNAPI
+        //      has been deprecated since Android 15, and the failure happens on an internal
+        //      worker thread where an uncaught C++ exception becomes std::terminate - it
+        //      cannot be caught anywhere in Java or Kotlin, so the only fix is not to enable
+        //      it. CPU inference on a 320x320 SSDLite costs only tens of milliseconds.
+        //
+        //   b) BASIC_OPT instead of ALL_OPT. ALL_OPT runs the aggressive fusion and layout
+        //      optimizers over the whole graph, which is where building a session for a
+        //      heavily rewritten model is most likely to fail. BASIC_OPT still folds
+        //      constants and removes dead nodes, which is all this model needs.
+        //
+        // A native abort is uncatchable, so the loop below can only survive Java-level
+        // failures - but it means one bad model file no longer leaves the app with nothing.
+        val env = OrtEnvironment.getEnvironment()
+        var loadedName: String? = null
+        var loadedBytes = ByteArray(0)
+        var loadedSession: OrtSession? = null
+        for (candidate in MODEL_CANDIDATES) {
+            val bytes = try {
+                assets.open("$ASSET_DIR/$candidate").readBytes()
+            } catch (_: Exception) {
+                continue // this model file is not shipped in this build
+            }
+            val session = createSessionSafely(env, candidate, bytes)
+            if (session != null) {
+                loadedName = candidate
+                loadedBytes = bytes
+                loadedSession = session
+                break
+            }
+            Log.w(TAG, "Rejected $candidate - trying the next model file")
+        }
+        if (loadedName == null || loadedSession == null) {
+            Log.w(
+                TAG,
+                "No usable ONNX model in assets/$ASSET_DIR/ (looked for $MODEL_CANDIDATES). " +
+                    "Run ai/setup_model.bat (or ai/scripts/convert_model.py) and rebuild. " +
+                    "Until then the app reports zero objects instead of inventing them."
+            )
+            return false
+        }
         ortEnv = env
-        ortSession = session
+        ortSession = loadedSession
 
         // 4. read the expected input shape so preprocessing matches the model exactly
         try {
-            val entry = session.inputInfo.entries.firstOrNull()
+            val entry = loadedSession.inputInfo.entries.firstOrNull()
             if (entry != null) {
                 inputName = entry.key
                 val shape = (entry.value.info as? TensorInfo)?.shape
@@ -247,18 +328,37 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
             Log.w(TAG, "Could not read input shape, assuming $inputSize NCHW: ${e.message}")
         }
 
-        modelFileName = chosen
+        modelFileName = loadedName
         modelLoaded = true
-        Log.i(TAG, "Model ready: $chosen (${modelBytes.size / 1024} KB)")
+        Log.i(TAG, "Model ready: $loadedName (${loadedBytes.size / 1024} KB)")
         return true
     }
 
     @ReactMethod
     fun release(promise: Promise) {
+        // Stop accepting work first, so no new frame can enter while we are shutting down.
+        isInitialized.set(false)
+        modelLoaded = false
+
+        // Wait for any inference already running to finish before freeing the session. Without
+        // this the native session can be closed out from under runInference() -> SIGSEGV.
+        var locked = false
+        try {
+            locked = sessionLock.tryLock(2, TimeUnit.SECONDS)
+            if (!locked) {
+                Log.w(TAG, "Inference still running after 2s - closing the session anyway")
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.w(TAG, "Interrupted while waiting for inference to finish")
+        }
+
         try {
             ortSession?.close()
         } catch (e: Exception) {
             Log.w(TAG, "Error closing session", e)
+        } finally {
+            if (locked) sessionLock.unlock()
         }
         ortSession = null
         // NOTE: OrtEnvironment.getEnvironment() is a process-wide singleton - deliberately
@@ -282,11 +382,18 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
      */
     fun analyzeFrame(imageProxy: ImageProxy) {
         if (!isInitialized.get() || !modelLoaded) return
-        val session = ortSession ?: return
+
+        // tryLock, not lock: analysis is real-time, so a frame arriving while another inference
+        // (or a release) is in progress is dropped rather than queued. The caller closes the
+        // ImageProxy either way, so nothing leaks.
+        if (!sessionLock.tryLock()) return
 
         val start = System.nanoTime()
         var bitmap: Bitmap? = null
         try {
+            // Read the session INSIDE the lock: release() may have closed it since the check above.
+            val session = ortSession
+            if (session == null) return
             // CameraX default output is YUV_420_888, which toBitmap() converts for us.
             bitmap = imageProxy.toBitmap()
             val detections = runInference(session, bitmap, imageProxy.imageInfo.rotationDegrees)
@@ -301,6 +408,7 @@ class InferenceModule(private val reactContext: ReactApplicationContext) :
             }
             lastInferenceMs.set((System.nanoTime() - start) / 1_000_000)
             fpsCounter.tick()
+            sessionLock.unlock()
         }
     }
 

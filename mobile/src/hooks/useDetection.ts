@@ -17,6 +17,8 @@ interface UseDetectionOptions {
 
 interface UseDetectionResult {
   isInitialized: boolean;
+  /** True when no usable .onnx model is available: detections will be empty by design. */
+  modelMissing: boolean;
   isRunning: boolean;
   currentDetections: DetectedObject[];
   trackedObjects: TrackedObject[];
@@ -39,6 +41,7 @@ export function useDetection(options: UseDetectionOptions = {}): UseDetectionRes
   const lastProcessedRef = useRef<number>(0);
 
   const [isInitialized, setIsInitialized] = useState(false);
+  const [modelMissing, setModelMissing] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [currentDetections, setCurrentDetections] = useState<DetectedObject[]>([]);
   const [trackedObjects, setTrackedObjects] = useState<TrackedObject[]>([]);
@@ -57,7 +60,11 @@ export function useDetection(options: UseDetectionOptions = {}): UseDetectionRes
     detectorRef.current = detector;
 
     detector.initialize().then((ok) => {
-      if (mounted) setIsInitialized(ok);
+      if (!mounted) return;
+      setIsInitialized(ok);
+      // No usable model -> there is genuinely nothing to detect with. Surface that to the UI
+      // instead of quietly showing an empty (or, worse, invented) screen.
+      setModelMissing(!ok);
     });
 
     return () => {
@@ -124,17 +131,25 @@ export function useDetection(options: UseDetectionOptions = {}): UseDetectionRes
     setObjectCounts([]);
   }, []);
 
-  // Auto-start when enabled flag changes
+  // Auto-start when the enabled flag changes.
+  //
+  // The previous `else stopDetection()` branch also fired while `enabled` was false, so
+  // ScannerScreen - which starts the loop itself - had its frame loop killed the moment
+  // initialize() resolved. We now only stop a loop that this effect itself started.
+  const autoStartedRef = useRef(false);
   useEffect(() => {
     if (enabled && isInitialized) {
+      autoStartedRef.current = true;
       startDetection();
-    } else {
+    } else if (autoStartedRef.current) {
+      autoStartedRef.current = false;
       stopDetection();
     }
   }, [enabled, isInitialized, startDetection, stopDetection]);
 
   return {
     isInitialized,
+    modelMissing,
     isRunning,
     currentDetections,
     trackedObjects,
